@@ -26,9 +26,9 @@ import (
 
 	"github.com/surge/glog"
 	"github.com/surgemq/message"
-	"github.com/surgemq/surgemq/auth"
-	"github.com/surgemq/surgemq/sessions"
-	"github.com/surgemq/surgemq/topics"
+	"github.com/HiFX/surgemq/auth"
+	"github.com/HiFX/surgemq/sessions"
+	"github.com/HiFX/surgemq/topics"
 )
 
 var (
@@ -111,6 +111,9 @@ type Server struct {
 
 	subs []interface{}
 	qoss []byte
+
+	//A custom Authenticator for token based authentication
+	authenticate func(string) error
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
@@ -120,7 +123,6 @@ type Server struct {
 // url.Parse(). For example, an URI could be "tcp://0.0.0.0:1883".
 func (this *Server) ListenAndServe(uri string) error {
 	defer atomic.CompareAndSwapInt32(&this.running, 1, 0)
-
 	if !atomic.CompareAndSwapInt32(&this.running, 0, 1) {
 		return fmt.Errorf("server/ListenAndServe: Server is already running")
 	}
@@ -157,7 +159,7 @@ func (this *Server) ListenAndServe(uri string) error {
 			// Borrowed from go1.3.3/src/pkg/net/http/server.go:1699
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
+					tempDelay = 5*time.Millisecond
 				} else {
 					tempDelay *= 2
 				}
@@ -290,7 +292,15 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	}
 
 	// Authenticate the user, if error, return error and exit
-	if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
+	//	if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
+	//		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
+	//		resp.SetSessionPresent(false)
+	//		writeMessage(conn, resp)
+	//		return nil, err
+	//	}
+
+	// Authenticate the user, if error, return error and exit
+	if err = this.authenticate(string(req.Username())); err != nil {
 		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
 		resp.SetSessionPresent(false)
 		writeMessage(conn, resp)
@@ -304,12 +314,10 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	svc = &service{
 		id:     atomic.AddUint64(&gsvcid, 1),
 		client: false,
-
 		keepAlive:      int(req.KeepAlive()),
 		connectTimeout: this.ConnectTimeout,
 		ackTimeout:     this.AckTimeout,
 		timeoutRetries: this.TimeoutRetries,
-
 		conn:      conn,
 		sessMgr:   this.sessMgr,
 		topicsMgr: this.topicsMgr,
@@ -343,6 +351,11 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	return svc, nil
 }
 
+func (this *Server) RegisterAuthenticator(authFunc func(string) error) {
+	this.authenticate = authFunc
+	this.Authenticator = "custom_auth"
+}
+
 func (this *Server) checkConfiguration() error {
 	var err error
 
@@ -364,12 +377,15 @@ func (this *Server) checkConfiguration() error {
 		}
 
 		if this.Authenticator == "" {
-			this.Authenticator = "mockSuccess"
-		}
-
-		this.authMgr, err = auth.NewManager(this.Authenticator)
-		if err != nil {
-			return
+			this.authenticate = func(token string) error {
+				return nil
+			}
+//			this.Authenticator = "mockSuccess"
+//		}
+//
+//		this.authMgr, err = auth.NewManager(this.Authenticator)
+//		if err != nil {
+//			return
 		}
 
 		if this.SessionsProvider == "" {

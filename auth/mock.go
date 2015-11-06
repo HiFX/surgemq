@@ -14,24 +14,24 @@
 
 package auth
 
-type mockAuthenticator bool
-
-var _ Authenticator = (*mockAuthenticator)(nil)
-
-var (
-	mockSuccessAuthenticator mockAuthenticator = true
-	mockFailureAuthenticator mockAuthenticator = false
-)
-
-func init() {
-	Register("mockSuccess", mockSuccessAuthenticator)
-	Register("mockFailure", mockFailureAuthenticator)
-}
-
-func (this mockAuthenticator) Authenticate(id string, cred interface{}) error {
-	if this == true {
-		return nil
-	}
-
-	return ErrAuthFailure
-}
+//type mockAuthenticator bool
+//
+//var _ Authenticator = (*mockAuthenticator)(nil)
+//
+//var (
+//	mockSuccessAuthenticator mockAuthenticator = true
+//	mockFailureAuthenticator mockAuthenticator = false
+//)
+//
+//func init() {
+//	Register("mockSuccess", mockSuccessAuthenticator)
+//	Register("mockFailure", mockFailureAuthenticator)
+//}
+//
+//func (this mockAuthenticator) Authenticate(id string, cred interface{}) error {
+//	if this == true {
+//		return nil
+//	}
+//
+//	return ErrAuthFailure
+//}
