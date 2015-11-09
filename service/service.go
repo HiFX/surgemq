@@ -125,7 +125,6 @@ type service struct {
 
 func (this *service) start() error {
 	var err error
-
 	// Create the incoming ring buffer
 	this.in, err = newBuffer(defaultBufferSize)
 	if err != nil {
@@ -146,10 +145,8 @@ func (this *service) start() error {
 				glog.Errorf("service/onPublish: Error publishing message: %v", err)
 				return err
 			}
-
 			return nil
 		}
-
 		// If this is a recovered session, then add any topics it subscribed before
 		topics, qoss, err := this.sess.Topics()
 		if err != nil {
@@ -284,7 +281,6 @@ func (this *service) subscribe(msg *message.SubscribeMessage, onComplete OnCompl
 	if onPublish == nil {
 		return fmt.Errorf("onPublish function is nil. No need to subscribe.")
 	}
-
 	_, err := this.writeMessage(msg)
 	if err != nil {
 		return fmt.Errorf("(%s) Error sending %s message: %v", this.cid(), msg.Name(), err)

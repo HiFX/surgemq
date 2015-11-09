@@ -16,13 +16,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"runtime/pprof"
 
 	"github.com/surge/glog"
-	"github.com/surgemq/surgemq/service"
+	"github.com/HiFX/surgemq/service"
 )
 
 var (
@@ -65,7 +66,12 @@ func main() {
 		SessionsProvider: sessionsProvider,
 		TopicsProvider:   topicsProvider,
 	}
-
+	authenticator := func(token string) (error) {
+		fmt.Println("Hi ", token, ", you are going to be authenticated")
+		return nil
+		//		return errors.New("authentication error for "  + token)
+	}
+	svr.RegisterAuthenticator(authenticator)
 	var f *os.File
 	var err error
 

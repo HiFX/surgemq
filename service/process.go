@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 
 	"github.com/surge/glog"
 	"github.com/surgemq/message"
@@ -27,7 +28,24 @@ import (
 
 var (
 	errDisconnect = errors.New("Disconnect")
+	conPool       = make(map[string]*service)
 )
+
+//add to connection pool
+func AddConnToPool(client_id string, srv *service) {
+	if srv != nil {
+		conPool[client_id] = srv
+	}
+}
+
+//read connection from pool
+func FromPooledConn(client_id string) (*service, error) {
+	con, ok := conPool[client_id]
+	if !ok {
+		return nil, errors.New("client not found error")
+	}
+	return con, nil
+}
 
 // processor() reads messages from the incoming buffer and processes them
 func (this *service) processor() {
@@ -104,6 +122,7 @@ func (this *service) processIncoming(msg message.Message) error {
 
 	switch msg := msg.(type) {
 	case *message.PublishMessage:
+		fmt.Println("A publish Message Arrived.. : ", msg)
 		// For PUBLISH message, we should figure out what QoS it is and process accordingly
 		// If QoS == 0, we should just take the next step, no ack required
 		// If QoS == 1, we should send back PUBACK, then take the next step
@@ -146,6 +165,7 @@ func (this *service) processIncoming(msg message.Message) error {
 		this.processAcked(this.sess.Pub2out)
 
 	case *message.SubscribeMessage:
+		fmt.Println("A subscribe Message Arrived.. : ", msg)
 		// For SUBSCRIBE message, we should add subscriber, then send back SUBACK
 		return this.processSubscribe(msg)
 
@@ -312,10 +332,26 @@ func (this *service) processSubscribe(msg *message.SubscribeMessage) error {
 	this.rmsgs = this.rmsgs[0:0]
 
 	for i, t := range topics {
+		stringTopic := string(t)
+		splittedTopic := strings.Split(stringTopic, "#")
+		t = make([]byte, len([]byte(splittedTopic[0])))
+		copy(t, []byte(splittedTopic[0]))
 		rqos, err := this.topicsMgr.Subscribe(t, qos[i], &this.onpub)
 		if err != nil {
 			return err
 		}
+		//add the target users to subscription ;
+		for i := 1; i < len(splittedTopic); i++ {
+			targeClient, cliErr := FromPooledConn(splittedTopic[i])
+			if cliErr == nil {
+				newMsg := new(message.SubscribeMessage)
+				newMsg = msg
+				newMsg.RemoveTopic([]byte(stringTopic))
+				newMsg.AddTopic(t, 2)
+				targeClient.processSubscribe(msg)
+			}
+		}
+
 		this.sess.AddTopic(string(t), qos[i])
 
 		retcodes = append(retcodes, rqos)

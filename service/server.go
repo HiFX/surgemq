@@ -253,6 +253,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		}
 	}()
 
+	fmt.Println("checking config")
 	err = this.checkConfiguration()
 	if err != nil {
 		return nil, err
@@ -323,10 +324,13 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		topicsMgr: this.topicsMgr,
 	}
 
+
 	err = this.getSession(svc, req, resp)
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("conn stat : ", svc.closed)
 
 	resp.SetReturnCode(message.ConnectionAccepted)
 
@@ -341,6 +345,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		svc.stop()
 		return nil, err
 	}
+	AddConnToPool(svc.sess.ID(), svc)
 
 	//this.mu.Lock()
 	//this.svcs = append(this.svcs, svc)
@@ -360,10 +365,10 @@ func (this *Server) checkConfiguration() error {
 	var err error
 
 	this.configOnce.Do(func() {
+		fmt.Println("inside config check")
 		if this.KeepAlive == 0 {
 			this.KeepAlive = DefaultKeepAlive
 		}
-
 		if this.ConnectTimeout == 0 {
 			this.ConnectTimeout = DefaultConnectTimeout
 		}
@@ -375,19 +380,19 @@ func (this *Server) checkConfiguration() error {
 		if this.TimeoutRetries == 0 {
 			this.TimeoutRetries = DefaultTimeoutRetries
 		}
-
+		fmt.Println("one")
 		if this.Authenticator == "" {
 			this.authenticate = func(token string) error {
 				return nil
 			}
-//			this.Authenticator = "mockSuccess"
-//		}
-//
-//		this.authMgr, err = auth.NewManager(this.Authenticator)
-//		if err != nil {
-//			return
+			//			this.Authenticator = "mockSuccess"
+			//		}
+			//
+			//		this.authMgr, err = auth.NewManager(this.Authenticator)
+			//		if err != nil {
+			//			return
 		}
-
+		fmt.Println("two")
 		if this.SessionsProvider == "" {
 			this.SessionsProvider = "mem"
 		}
@@ -396,7 +401,8 @@ func (this *Server) checkConfiguration() error {
 		if err != nil {
 			return
 		}
-
+		fmt.Println("three")
+		fmt.Println("topic provider : ", this.TopicsProvider)
 		if this.TopicsProvider == "" {
 			this.TopicsProvider = "mem"
 		}

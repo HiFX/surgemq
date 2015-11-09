@@ -88,6 +88,7 @@ type Manager struct {
 }
 
 func NewManager(providerName string) (*Manager, error) {
+	fmt.Println("returning topic provider : under name ", providerName)
 	p, ok := providers[providerName]
 	if !ok {
 		return nil, fmt.Errorf("session: unknown provider %q", providerName)
@@ -97,6 +98,7 @@ func NewManager(providerName string) (*Manager, error) {
 }
 
 func (this *Manager) Subscribe(topic []byte, qos byte, subscriber interface{}) (byte, error) {
+	fmt.Println("A Subscription to topic : ", string(topic), " for the subscriber : ", subscriber)
 	return this.p.Subscribe(topic, qos, subscriber)
 }
 
