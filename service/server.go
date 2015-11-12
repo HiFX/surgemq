@@ -113,7 +113,7 @@ type Server struct {
 	qoss []byte
 
 	//A custom Authenticator for token based authentication
-	authenticate func(string) error
+	authenticate func(string) (string, error)
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
@@ -301,12 +301,14 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	//	}
 
 	// Authenticate the user, if error, return error and exit
-	if err = this.authenticate(string(req.Username())); err != nil {
+	user_id , err := this.authenticate(string(req.Username()))
+	if err != nil {
 		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
 		resp.SetSessionPresent(false)
 		writeMessage(conn, resp)
 		return nil, err
 	}
+	user_id = user_id
 
 	if req.KeepAlive() == 0 {
 		req.SetKeepAlive(minKeepAlive)
@@ -356,7 +358,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	return svc, nil
 }
 
-func (this *Server) RegisterAuthenticator(authFunc func(string) error) {
+func (this *Server) RegisterAuthenticator(authFunc func(string) (string, error)) {
 	this.authenticate = authFunc
 	this.Authenticator = "custom_auth"
 }
@@ -382,8 +384,8 @@ func (this *Server) checkConfiguration() error {
 		}
 		fmt.Println("one")
 		if this.Authenticator == "" {
-			this.authenticate = func(token string) error {
-				return nil
+			this.authenticate = func(token string) (string, error ){
+				return "anonymous", nil
 			}
 			//			this.Authenticator = "mockSuccess"
 			//		}

@@ -4,6 +4,7 @@ import (
 	"golang.org/x/net/websocket"
 	"net/http"
 	"net/url"
+	"github.com/surgemq/message"
 )
 
 type ServiceWrapper struct {
@@ -16,7 +17,7 @@ type ServiceWrapper struct {
 //Params :
 //		auth : authentication function;
 //		topic_authorization : topic authorization function;
-func NewService(auth func(string) error, topicGenerator func() string, webSocketPort string) (*ServiceWrapper, error) {
+func NewService(auth func(string) (string,error), topicGenerator func() string, webSocketPort string) (*ServiceWrapper, error) {
 
 	//todo : validate webSocket port to follow the format of :1234
 	svr := &Server{
