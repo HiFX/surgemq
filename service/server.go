@@ -301,7 +301,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	//	}
 
 	// Authenticate the user, if error, return error and exit
-	user_id , err := this.authenticate(string(req.Username()))
+	user_id , err := this.authenticate(string(req.Password()))
 	if err != nil {
 		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
 		resp.SetSessionPresent(false)
