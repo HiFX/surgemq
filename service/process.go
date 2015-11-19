@@ -166,8 +166,10 @@ func (this *service) processIncoming(msg message.Message) error {
 
 	case *message.SubscribeMessage:
 		fmt.Println("A subscribe Message Arrived.. : ", msg)
+
 		// For SUBSCRIBE message, we should add subscriber, then send back SUBACK
-		return this.processSubscribe(msg)
+		//		return this.processSubscribe(msg)
+		return this.subscriptionIntermediateProcessor(msg)
 
 	case *message.SubackMessage:
 		// For SUBACK message, we should send to ack queue
@@ -318,6 +320,23 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 	return fmt.Errorf("(%s) invalid message QoS %d.", this.cid(), msg.QoS())
 }
 
+func (this *service) subscriptionIntermediateProcessor(msg *message.SubscribeMessage) error {
+	topics := msg.Topics()
+	topic := topics[0];
+	strTopic := string(topic)
+	subscribers := strings.Split(strTopic, "|")
+	err := this.processSubscribe(msg)
+	if err == nil {
+		for i := 1; i < len(subscribers); i++ {
+			targetClient, cliErr := FromPooledConn(subscribers[i])
+			if cliErr == nil {
+				targetClient.topicsMgr.Subscribe(topic, msg.Qos()[0], &targetClient.onpub)
+			}
+		}
+	}
+	return err
+}
+
 // For SUBSCRIBE message, we should add subscriber, then send back SUBACK
 func (this *service) processSubscribe(msg *message.SubscribeMessage) error {
 	resp := message.NewSubackMessage()
@@ -332,34 +351,10 @@ func (this *service) processSubscribe(msg *message.SubscribeMessage) error {
 	this.rmsgs = this.rmsgs[0:0]
 
 	for i, t := range topics {
-		tempTopic := t
-		originalTopic := string(t)
-		var (
-			chatMates []string
-		)
-		if strings.Contains(originalTopic, "|") {
-			chatMates = strings.Split(originalTopic, "|")
-			originalTopic = strings.Replace(originalTopic, "|", "@", -1)
-			t = make([]byte, len([]byte(originalTopic)))
-			copy(t, []byte(originalTopic))
-		}
-		fmt.Println("Final T : ", string(t))
 		rqos, err := this.topicsMgr.Subscribe(t, qos[i], &this.onpub)
 		if err != nil {
 			return err
 		}
-		//add the target users to subscription ;
-		for i := 1; i < len(chatMates); i++ {
-			targeClient, cliErr := FromPooledConn(chatMates[i])
-			if cliErr == nil {
-				newMsg := new(message.SubscribeMessage)
-				newMsg = msg
-				newMsg.RemoveTopic(tempTopic)
-				newMsg.AddTopic(t, 2)
-				targeClient.processSubscribe(msg)
-			}
-		}
-
 		this.sess.AddTopic(string(t), qos[i])
 
 		retcodes = append(retcodes, rqos)
