@@ -332,21 +332,29 @@ func (this *service) processSubscribe(msg *message.SubscribeMessage) error {
 	this.rmsgs = this.rmsgs[0:0]
 
 	for i, t := range topics {
-		stringTopic := string(t)
-		splittedTopic := strings.Split(stringTopic, "#")
-		t = make([]byte, len([]byte(splittedTopic[0])))
-		copy(t, []byte(splittedTopic[0]))
+		tempTopic := t
+		originalTopic := string(t)
+		var (
+			chatMates []string
+		)
+		if strings.Contains(originalTopic, "|") {
+			chatMates = strings.Split(originalTopic, "|")
+			originalTopic = strings.Replace(originalTopic, "|", "@", -1)
+			t = make([]byte, len([]byte(originalTopic)))
+			copy(t, []byte(originalTopic))
+		}
+		fmt.Println("Final T : ", string(t))
 		rqos, err := this.topicsMgr.Subscribe(t, qos[i], &this.onpub)
 		if err != nil {
 			return err
 		}
 		//add the target users to subscription ;
-		for i := 1; i < len(splittedTopic); i++ {
-			targeClient, cliErr := FromPooledConn(splittedTopic[i])
+		for i := 1; i < len(chatMates); i++ {
+			targeClient, cliErr := FromPooledConn(chatMates[i])
 			if cliErr == nil {
 				newMsg := new(message.SubscribeMessage)
 				newMsg = msg
-				newMsg.RemoveTopic([]byte(stringTopic))
+				newMsg.RemoveTopic(tempTopic)
 				newMsg.AddTopic(t, 2)
 				targeClient.processSubscribe(msg)
 			}
@@ -406,6 +414,7 @@ func (this *service) onPublish(msg *message.PublishMessage) error {
 		}
 	}
 
+	fmt.Println("Status in this.onPublish; this.subs : ", this.subs)
 	err := this.topicsMgr.Subscribers(msg.Topic(), msg.QoS(), &this.subs, &this.qoss)
 	if err != nil {
 		glog.Errorf("(%s) Error retrieving subscribers list: %v", this.cid(), err)
@@ -422,6 +431,7 @@ func (this *service) onPublish(msg *message.PublishMessage) error {
 				glog.Errorf("Invalid onPublish Function")
 				return fmt.Errorf("Invalid onPublish Function")
 			} else {
+				fmt.Println("writing on a client;")
 				(*fn)(msg)
 			}
 		}

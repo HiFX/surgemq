@@ -253,7 +253,6 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		}
 	}()
 
-	fmt.Println("checking config")
 	err = this.checkConfiguration()
 	if err != nil {
 		return nil, err
@@ -367,7 +366,6 @@ func (this *Server) checkConfiguration() error {
 	var err error
 
 	this.configOnce.Do(func() {
-		fmt.Println("inside config check")
 		if this.KeepAlive == 0 {
 			this.KeepAlive = DefaultKeepAlive
 		}
@@ -382,9 +380,9 @@ func (this *Server) checkConfiguration() error {
 		if this.TimeoutRetries == 0 {
 			this.TimeoutRetries = DefaultTimeoutRetries
 		}
-		fmt.Println("one")
 		if this.Authenticator == "" {
 			this.authenticate = func(token string) (string, error ){
+				//todo  : checkout : this could be a loop hole..
 				return "anonymous", nil
 			}
 			//			this.Authenticator = "mockSuccess"
@@ -394,7 +392,6 @@ func (this *Server) checkConfiguration() error {
 			//		if err != nil {
 			//			return
 		}
-		fmt.Println("two")
 		if this.SessionsProvider == "" {
 			this.SessionsProvider = "mem"
 		}
@@ -403,8 +400,6 @@ func (this *Server) checkConfiguration() error {
 		if err != nil {
 			return
 		}
-		fmt.Println("three")
-		fmt.Println("topic provider : ", this.TopicsProvider)
 		if this.TopicsProvider == "" {
 			this.TopicsProvider = "mem"
 		}
