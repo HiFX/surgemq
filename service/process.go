@@ -320,11 +320,16 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 	return fmt.Errorf("(%s) invalid message QoS %d.", this.cid(), msg.QoS())
 }
 
+//IntermediateProcessor explodes the topic for obtaining list
+//of active listeners and forcefully register those listeners
+//to subscribe this topic;
 func (this *service) subscriptionIntermediateProcessor(msg *message.SubscribeMessage) error {
 	topics := msg.Topics()
 	topic := topics[0];
 	strTopic := string(topic)
 	subscribers := strings.Split(strTopic, "|")
+	//todo : imiplement authorization logic for creating a conversation
+	//todo : among the listed users.
 	err := this.processSubscribe(msg)
 	if err == nil {
 		for i := 1; i < len(subscribers); i++ {

@@ -331,8 +331,6 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		return nil, err
 	}
 
-	fmt.Println("conn stat : ", svc.closed)
-
 	resp.SetReturnCode(message.ConnectionAccepted)
 
 	if err = writeMessage(c, resp); err != nil {
