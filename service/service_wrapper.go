@@ -5,21 +5,33 @@ import (
 	"net/http"
 	"net/url"
 	"github.com/surgemq/message"
+	"github.com/go-redis/redis"
 )
 
 type ServiceWrapper struct {
 	server *Server
 	mux *http.ServeMux
 	webSocketPort string
+	redis *redis.Client
 }
 
 //NewService returns a server
 //Params :
 //		auth : authentication function;
 //		topic_authorization : topic authorization function;
-func NewService(auth func(string) (string,error), topicGenerator func() string, webSocketPort string) (*ServiceWrapper, error) {
-
+func NewService(auth func(string) (string, error), webSocketPort, redisHost, redisPass string, redisDB int) (*ServiceWrapper, error) {
 	//todo : validate webSocket port to follow the format of :1234
+	//obtain redis service
+	rClient := redis.NewClient(&redis.Options{
+		Addr : redisHost,
+		Password : redisPass,
+		DB : int64(redisDB),
+	})
+	_, err := rClient.Ping().Result()
+	if err != nil {
+		return nil, err
+	}
+
 	svr := &Server{
 		KeepAlive:        DefaultKeepAlive,
 		ConnectTimeout:   DefaultConnectTimeout,
@@ -27,6 +39,7 @@ func NewService(auth func(string) (string,error), topicGenerator func() string, 
 		TimeoutRetries:   DefaultTimeoutRetries,
 		SessionsProvider: DefaultSessionsProvider,
 		TopicsProvider:   DefaultTopicsProvider,
+		redis:	rClient,
 	}
 	svr.RegisterAuthenticator(auth)
 	wrapper := &ServiceWrapper{server : svr}
@@ -40,16 +53,9 @@ func NewService(auth func(string) (string,error), topicGenerator func() string, 
 		WebsocketTcpProxy(ws, scheme.Scheme, scheme.Host)
 	}
 
-	//handler for topic generator
-	topicGen := func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(topicGenerator()))
-		w.WriteHeader(200)
-		return
-	}
-
 	//register all created handlers
 	wrapper.mux.Handle("/mqtt", websocket.Handler(soketProxy))
-	wrapper.mux.Handle("/topic", http.HandlerFunc(topicGen))
+	//wrapper.mux.Handle("/topic", http.HandlerFunc(topicGen))
 	return wrapper, nil
 }
 
@@ -59,7 +65,7 @@ func (this *ServiceWrapper) Start() {
 }
 
 func (this *ServiceWrapper) Publish(msg *message.PublishMessage, onComplete OnCompleteFunc) error {
-	return this.server.Publish(msg , onComplete )
+	return this.server.Publish(msg, onComplete)
 }
 
 func (this *ServiceWrapper) Close() error {

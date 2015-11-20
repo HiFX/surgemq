@@ -169,7 +169,7 @@ func (this *service) processIncoming(msg message.Message) error {
 
 		// For SUBSCRIBE message, we should add subscriber, then send back SUBACK
 		//		return this.processSubscribe(msg)
-		return this.subscriptionIntermediateProcessor(msg)
+		return this.subscriptionPreProcessor(msg)
 
 	case *message.SubackMessage:
 		// For SUBACK message, we should send to ack queue
@@ -323,7 +323,7 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 //IntermediateProcessor explodes the topic for obtaining list
 //of active listeners and forcefully register those listeners
 //to subscribe this topic;
-func (this *service) subscriptionIntermediateProcessor(msg *message.SubscribeMessage) error {
+func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) error {
 	topics := msg.Topics()
 	topic := topics[0];
 	strTopic := string(topic)

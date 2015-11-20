@@ -29,6 +29,7 @@ import (
 	"github.com/HiFX/surgemq/auth"
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/topics"
+	"github.com/go-redis/redis"
 )
 
 var (
@@ -114,6 +115,9 @@ type Server struct {
 
 	//A custom Authenticator for token based authentication
 	authenticate func(string) (string, error)
+
+	//redis client
+	redis *redis.Client
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
