@@ -91,16 +91,6 @@ func (this *Redis) GroupShadow(group []string) (string, error){
 	return this.groupShadow(buddies, nickName)
 }
 
-func (this *Redis) groupShadow(buddies []string, flatGroup string) (string, error) {
-	val, readError := this.client.Get(flatGroup).Result()
-	//todo : consider the error case here; another level of refining may be needed
-	if readError == nil {
-		return val, nil
-	}
-	//create and register a new shadow
-	return this.newShadow(flatGroup, buddies)
-}
-
 //Unsubscribe handles the unsubsribing of the client from a user group;
 func (this *Redis) Unsubscribe(unsubscriber, flatGroupName string) {
 	//todo
@@ -126,6 +116,27 @@ func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int)([]mo
 		//todo : deal error
 	}
 	return this.scan(userId, nickName, offset, count)
+}
+
+//ChatList returns identifiers for all the unique chats of the user;
+//An identifier is usually a string which is actually a combination of
+//ids of the participating clients seperated by |. A client should exchange
+//a chat identifier for loading the chat history;
+func (this *Redis) ChatList(userId string) ([]string, error) {
+	//todo : parsing of error may be needed for checking whether
+	//todo : the error is of not found kind;
+	 return this.client.HKeys(userId).Result()
+}
+
+
+func (this *Redis) groupShadow(buddies []string, flatGroup string) (string, error) {
+	val, readError := this.client.Get(flatGroup).Result()
+	//todo : consider the error case here; another level of refining may be needed
+	if readError == nil {
+		return val, nil
+	}
+	//create and register a new shadow
+	return this.newShadow(flatGroup, buddies)
 }
 
 func (this *Redis) scan(userId, nickName string, offSet, count int)([]models.Message, error) {
@@ -231,7 +242,7 @@ func (this *Redis) clientGroupBuddies(clientTopic string) ([]string, string, err
 	}
 	buddies := parties(participants)
 	sort.Sort(buddies)
-	return buddies, strings.Join(buddies, ""), nil
+	return buddies, strings.Join(buddies, "|"), nil
 }
 
 type flushPack struct {
