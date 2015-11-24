@@ -29,7 +29,7 @@ import (
 	"github.com/HiFX/surgemq/auth"
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/topics"
-	"github.com/go-redis/redis"
+	"github.com/HiFX/surgemq/persistence"
 )
 
 var (
@@ -117,7 +117,7 @@ type Server struct {
 	authenticate func(string) (string, error)
 
 	//redis client
-	redis *redis.Client
+	redis *persistence.Redis
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
@@ -214,7 +214,6 @@ func (this *Server) Publish(msg *message.PublishMessage, onComplete OnCompleteFu
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -327,6 +326,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		conn:      conn,
 		sessMgr:   this.sessMgr,
 		topicsMgr: this.topicsMgr,
+		persist: this.redis,
 	}
 
 
@@ -383,7 +383,7 @@ func (this *Server) checkConfiguration() error {
 			this.TimeoutRetries = DefaultTimeoutRetries
 		}
 		if this.Authenticator == "" {
-			this.authenticate = func(token string) (string, error ){
+			this.authenticate = func(token string) (string, error ) {
 				//todo  : checkout : this could be a loop hole..
 				return "anonymous", nil
 			}

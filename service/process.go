@@ -24,6 +24,8 @@ import (
 	"github.com/surge/glog"
 	"github.com/surgemq/message"
 	"github.com/HiFX/surgemq/sessions"
+	"github.com/HiFX/surgemq/models"
+	"time"
 )
 
 var (
@@ -122,13 +124,12 @@ func (this *service) processIncoming(msg message.Message) error {
 
 	switch msg := msg.(type) {
 	case *message.PublishMessage:
-		fmt.Println("A publish Message Arrived.. : ", msg)
 		// For PUBLISH message, we should figure out what QoS it is and process accordingly
 		// If QoS == 0, we should just take the next step, no ack required
 		// If QoS == 1, we should send back PUBACK, then take the next step
 		// If QoS == 2, we need to put it in the ack queue, send back PUBREC
-		err = this.processPublish(msg)
-
+//		err = this.processPublish(msg)
+		err = this.publishPreProcessor(msg)
 	case *message.PubackMessage:
 		// For PUBACK message, it means QoS 1, we should send to ack queue
 		this.sess.Pub1ack.Ack(msg)
@@ -320,6 +321,20 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 	return fmt.Errorf("(%s) invalid message QoS %d.", this.cid(), msg.QoS())
 }
 
+//publihsPrePorcessor handles streaming of the published message to persistence
+//module;
+//todo : this preprocessor shuld be non blocking
+func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
+	payLoad := msg.Payload()
+	fmt.Println("msg.PacketId() : ", msg.PacketId())
+	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC(), What : string(payLoad)}
+	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
+	if persistError != nil {
+		fmt.Println("Persist error in processor :", persistError)
+	}
+	return this.processPublish(msg)
+}
+
 //IntermediateProcessor explodes the topic for obtaining list
 //of active listeners and forcefully register those listeners
 //to subscribe this topic;
@@ -330,7 +345,11 @@ func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) err
 	subscribers := strings.Split(strTopic, "|")
 	//todo : imiplement authorization logic for creating a conversation
 	//todo : among the listed users.
-	err := this.processSubscribe(msg)
+	err := this.persist.NewSubscription(strTopic)
+	if err != nil {
+		fmt.Println("persistence subscription error : ", err)
+	}
+	err = this.processSubscribe(msg)
 	if err == nil {
 		for i := 1; i < len(subscribers); i++ {
 			targetClient, cliErr := FromPooledConn(subscribers[i])

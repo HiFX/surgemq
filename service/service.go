@@ -24,6 +24,7 @@ import (
 	"github.com/surgemq/message"
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/topics"
+	"github.com/HiFX/surgemq/persistence"
 )
 
 type (
@@ -121,6 +122,8 @@ type service struct {
 	subs  []interface{}
 	qoss  []byte
 	rmsgs []*message.PublishMessage
+	//persistence module
+	persist *persistence.Redis
 }
 
 func (this *service) start() error {
