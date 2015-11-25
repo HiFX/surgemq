@@ -96,6 +96,18 @@ func (this *Redis) Unsubscribe(unsubscriber, flatGroupName string) {
 	//todo
 }
 
+//Set for setting values in db; returns error
+func (this *Redis) SetChatToken(key string, token models.Token) error {
+	//todo : save token for user information
+	_, err := this.client.Set("user_" + key, token.Sub, time.Duration(0)).Result()
+	return err
+}
+
+//Get for getting values from db; returns value and error
+func (this *Redis) GetChatToken(key string) (string, error) {
+	return this.client.Get("user_" + key).Result()
+}
+
 //Flush : for storing a message in the persistence module;
 //Flush expects topic used in client side and the message.
 //Flush will recover the shadow for the group and store the

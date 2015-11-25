@@ -91,3 +91,4 @@ func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request
 	}
 	this.Respond(w, 200, list[offsetInt:offsetInt + countInt])
 }
+

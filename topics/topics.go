@@ -98,7 +98,6 @@ func NewManager(providerName string) (*Manager, error) {
 }
 
 func (this *Manager) Subscribe(topic []byte, qos byte, subscriber interface{}) (byte, error) {
-	fmt.Println("A Subscription to topic : ", string(topic), " for the subscriber : ", subscriber)
 	return this.p.Subscribe(topic, qos, subscriber)
 }
 

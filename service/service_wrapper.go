@@ -8,6 +8,8 @@ import (
 	"github.com/HiFX/surgemq/persistence"
 	"github.com/zenazn/goji/web"
 	"github.com/HiFX/surgemq/handlers"
+	"io/ioutil"
+	gmiddleware "github.com/zenazn/goji/web/middleware"
 )
 
 type ServiceWrapper struct {
@@ -21,14 +23,13 @@ type ServiceWrapper struct {
 //Params :
 //		auth : authentication function;
 //		topic_authorization : topic authorization function;
-func NewService(auth func(string) (string, error), webSocketPort, redisHost, redisPass string, redisDB int) (*ServiceWrapper, error) {
+func NewService(webSocketPort, redisHost, redisPass string, redisDB int, keyFilePath string) (*ServiceWrapper, error) {
 	//todo : validate webSocket port to follow the format of :1234
 
 	persist, err := persistence.NewRedis(redisHost, redisPass, redisDB)
 	if err != nil {
 		return nil, err
 	}
-
 	svr := &Server{
 		KeepAlive:        DefaultKeepAlive,
 		ConnectTimeout:   DefaultConnectTimeout,
@@ -38,7 +39,11 @@ func NewService(auth func(string) (string, error), webSocketPort, redisHost, red
 		TopicsProvider:   DefaultTopicsProvider,
 		redis:    persist,
 	}
-	svr.RegisterAuthenticator(auth)
+
+	keyFile, readError := readPublicKey(keyFilePath)
+	if readError != nil {
+		return nil, readError
+	}
 	wrapper := &ServiceWrapper{server : svr}
 	wrapper.mux = http.NewServeMux()
 	wrapper.webSocketPort = webSocketPort
@@ -53,10 +58,17 @@ func NewService(auth func(string) (string, error), webSocketPort, redisHost, red
 	mux := web.New()
 	var (
 		history handlers.History
+		auth    handlers.Authenticator
 	)
+	//set up handlers
 	history.Redis = persist
+	auth = handlers.Authenticator{KeyFile : keyFile, ClientId : "some_valid_client", Persist : persist, ModeProd : false}
+	//register middleware
+	mux.Use(gmiddleware.EnvInit)
+	mux.Use(auth.Authenticate)
 	mux.Get("/chat/history", history.History)
 	mux.Get("/chat/rooms", history.ChatRooms)
+	mux.Get("/chat/token", auth.ChatToken)
 	wrapper.mux.Handle("/mqtt", websocket.Handler(soketProxy))
 	wrapper.mux.Handle("/", mux)
 	return wrapper, nil
@@ -74,3 +86,8 @@ func (this *ServiceWrapper) Publish(msg *message.PublishMessage, onComplete OnCo
 func (this *ServiceWrapper) Close() error {
 	return this.server.Close()
 }
+
+func readPublicKey(keyFilePath string) ([]byte , error) {
+	return ioutil.ReadFile(keyFilePath)
+}
+

@@ -30,6 +30,7 @@ import (
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/topics"
 	"github.com/HiFX/surgemq/persistence"
+	"strings"
 )
 
 var (
@@ -114,7 +115,7 @@ type Server struct {
 	qoss []byte
 
 	//A custom Authenticator for token based authentication
-	authenticate func(string) (string, error)
+	authenticate func(string, string) (error)
 
 	//redis client
 	redis *persistence.Redis
@@ -217,6 +218,23 @@ func (this *Server) Publish(msg *message.PublishMessage, onComplete OnCompleteFu
 	return nil
 }
 
+//authentication
+func (this *Server) authProvider() func(string, string)(error) {
+	return func(userId, chatToken string) (error){
+		userId = strings.TrimSpace(userId)
+		chatToken = strings.TrimSpace(chatToken)
+		user_id, err := this.redis.GetChatToken(chatToken)
+		if err != nil {
+			//todo : deal error for determining the type of error
+			return err
+		}
+		if user_id != userId {
+			return errors.New("auth fail; invalid chat token")
+		}
+		return nil
+	}
+}
+
 // Close terminates the server by shutting down all the client connections and closing
 // the listener. It will, as best it can, clean up after itself.
 func (this *Server) Close() error {
@@ -294,23 +312,21 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		return nil, err
 	}
 
-	// Authenticate the user, if error, return error and exit
-	//	if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
-	//		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
-	//		resp.SetSessionPresent(false)
-	//		writeMessage(conn, resp)
-	//		return nil, err
-	//	}
+//	Authenticate the user, if error, return error and exit
+//		if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
+//			resp.SetReturnCode(message.ErrBadUsernameOrPassword)
+//			resp.SetSessionPresent(false)
+//			writeMessage(conn, resp)
+//			return nil, err
+//		}
 
-	// Authenticate the user, if error, return error and exit
-	user_id , err := this.authenticate(string(req.Password()))
-	if err != nil {
+	//Authenticate the user, if error, return error and exit
+	if err := this.authenticate(string(req.Username()), string(req.Password())); err != nil {
 		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
 		resp.SetSessionPresent(false)
 		writeMessage(conn, resp)
 		return nil, err
 	}
-	user_id = user_id
 
 	if req.KeepAlive() == 0 {
 		req.SetKeepAlive(minKeepAlive)
@@ -359,11 +375,6 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	return svc, nil
 }
 
-func (this *Server) RegisterAuthenticator(authFunc func(string) (string, error)) {
-	this.authenticate = authFunc
-	this.Authenticator = "custom_auth"
-}
-
 func (this *Server) checkConfiguration() error {
 	var err error
 
@@ -383,10 +394,7 @@ func (this *Server) checkConfiguration() error {
 			this.TimeoutRetries = DefaultTimeoutRetries
 		}
 		if this.Authenticator == "" {
-			this.authenticate = func(token string) (string, error ) {
-				//todo  : checkout : this could be a loop hole..
-				return "anonymous", nil
-			}
+			this.authenticate = this.authProvider()
 			//			this.Authenticator = "mockSuccess"
 			//		}
 			//
