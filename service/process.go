@@ -326,10 +326,10 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 //todo : this preprocessor shuld be non blocking
 func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	payLoad := msg.Payload()
-	fmt.Println("msg.PacketId() : ", msg.PacketId())
 	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC(), What : string(payLoad)}
 	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
 	if persistError != nil {
+//		todo : handle error
 		fmt.Println("Persist error in processor :", persistError)
 	}
 	return this.processPublish(msg)
@@ -341,12 +341,16 @@ func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) error {
 	topics := msg.Topics()
 	topic := topics[0];
+	qos := 1
+	if len(msg.Qos()) > 0 {
+		qos = int(msg.Qos()[0])
+	}
+
 	strTopic := string(topic)
 	subscribers := strings.Split(strTopic, "|")
-	//todo : imiplement authorization logic for creating a conversation
-	//todo : among the listed users.
-	err := this.persist.NewSubscription(strTopic, this.authorizer)
+	err := this.persist.Subscribe(strTopic, qos, this.authorizer)
 	if err != nil {
+		//todo : this can be an authorization error
 		fmt.Println("persistence subscription error : ", err)
 	}
 	err = this.processSubscribe(msg)

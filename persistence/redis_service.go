@@ -19,6 +19,8 @@ import (
 
 const (
 	PARTICIPANTS_SEPERATOR = "|"
+	USER_GROUP_PREFIX = "ug"
+	KALAPILA_MAX_QOS = 2
 )
 
 //todo : may have to implement a close function for winding up the
@@ -57,7 +59,7 @@ func NewRedis(host, pass string, db int) (*Redis, error) {
 //returns the shadow;
 //The param clientTopic is assumed to follow the format of
 //user_id_1|user_id_2|user_id_3
-func (this *Redis) NewSubscription(clientTopic string, authorier func(...string) bool) (error) {
+func (this *Redis) Subscribe(clientTopic string, qos int, authorier func(...string) bool) (error) {
 	buddies, nickName, err := this.ClientGroupBuddies(clientTopic)
 	if err != nil {
 		return err
@@ -66,7 +68,7 @@ func (this *Redis) NewSubscription(clientTopic string, authorier func(...string)
 	if !authorier(buddies...) {
 		return errors.New("unauthorized chat group")
 	}
-	_, err = this.groupShadow(buddies, nickName)
+	_, err = this.groupShadow(buddies, nickName, clientTopic, qos)
 	return err
 }
 
@@ -123,14 +125,18 @@ func (this *Redis) ChatList(userId string) ([]string, error) {
 	return this.client.HKeys(userId).Result()
 }
 
-func (this *Redis) groupShadow(buddies []string, flatGroup string) (string, error) {
-	shadow, err := this.existingShadow(flatGroup)
+func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error){
+	return this.readUserGroupNames(userId)
+}
+
+func (this *Redis) groupShadow(buddies []string, nickName, clientGroup string, qos int) (string, error) {
+	shadow, err := this.existingShadow(nickName)
 	if err == nil{
 		//todo : refine error to further level for detecting s/m failure
 		return shadow, nil
 	}
 	//create and register a new shadow
-	return this.newShadow(flatGroup, buddies)
+	return this.newShadow(buddies, nickName, clientGroup, qos)
 }
 
 func (this *Redis) scan(userId, nickName string, offSet, count int) ([]models.Message, error) {
@@ -162,7 +168,7 @@ func (this *Redis) existingShadow(nickName string) (string, error) {
 //given users and registers the same in topic list; It also registers
 //an entry in persistence with the key being the shadow and value
 //being the users listening on this topic
-func (this *Redis) newShadow(flatGroup string, groupMembers []string) (string, error) {
+func (this *Redis) newShadow(buddies []string, nickName, clientGroupName string, qos int) (string, error) {
 	//todo : perform authorization of the group members here
 	this.hasher.Reset()
 	//	_, err := this.hasher.Write([]byte(flatGroup))
@@ -172,16 +178,19 @@ func (this *Redis) newShadow(flatGroup string, groupMembers []string) (string, e
 	//	shadow := string(this.hasher.Sum(nil))
 	//todo : code is experimental
 	shadow := strconv.Itoa(int(time.Now().UTC().Unix()))
-	//register the shadow in topic list mapper
-	setError := this.client.Set(flatGroup, shadow, time.Duration(0)).Err()
+	//1. register the shadow in topic list mapper
+	setError := this.client.Set(nickName, shadow, time.Duration(0)).Err()
 	if setError != nil {
 		return "", setError
 	}
-	//register active users of the shadow as list
-	this.client.LPush(flatGroup, groupMembers...)
-	//register shadow for all participants under the flatgroup name
-	for _, userId := range groupMembers {
-		status, err := this.client.HExists(userId, flatGroup).Result()
+	//2. register active users of the shadow as list
+	this.client.LPush(nickName, buddies...)
+	//3. register shadow for all participants under the nick name.
+	//4. register user group name under nick name for topic
+	//re-loading on warm up after a down time for all participants
+	for _, userId := range buddies {
+		//3. ...
+		status, err := this.client.HExists(userId, nickName).Result()
 		if err != nil {
 			//todo : deal error
 			fmt.Println("HExists Error..")
@@ -193,14 +202,50 @@ func (this *Redis) newShadow(flatGroup string, groupMembers []string) (string, e
 			continue
 		}else {
 			fmt.Println("regestering shadow topic for : ", userId)
-			_, err = this.client.HSet(userId, flatGroup, shadow).Result()
+			_, err = this.client.HSet(userId, nickName, shadow).Result()
 			if err != nil {
 				//todo : deal error
 				fmt.Println("Error in regestering shadow topic for : ", userId, "; Error : ", err)
 			}
 		}
+		//4. ...
+		if err = this.registerUserGroup(userId, nickName, clientGroupName, qos); err != nil {
+			//todo : deal error
+			return "", err
+		}
 	}
+
 	return shadow, nil
+}
+
+func (this *Redis)registerUserGroup(userId, nickName, userGroupName string, qos int) error {
+	if qos > KALAPILA_MAX_QOS {
+		return errors.New("invalid qos")
+	}
+	//attach prefix to the userId for distinguishing user group
+	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
+	//attach qos with the client group name
+	value := fmt.Sprintf("%d%s%s", qos, PARTICIPANTS_SEPERATOR, userGroupName)
+	_, err := this.client.HSet(label, nickName, value).Result()
+	return err
+}
+
+func (this *Redis)readUserGroupNames(userId string) (map[string]int , error) {
+	result := make(map[string]int)
+	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
+	values, err :=  this.client.HVals(label).Result()
+	if err != nil {
+		//todo : deal error
+		return result, err
+	}
+	for _, value := range values {
+		splitAt := strings.Index(value, PARTICIPANTS_SEPERATOR)
+		qosStr := value[0:splitAt]
+		groupName := value[splitAt +1:]
+		qos, _ := strconv.Atoi(qosStr)
+		result[groupName] = qos
+	}
+	return result, nil
 }
 
 func (this *Redis) dumpInFlushSink(shadow string, message []byte) {
@@ -235,6 +280,7 @@ func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, err
 	if len(participants) < 2 {
 		return []string{}, "", errors.New("invalid number of participants")
 	}
+	//todo : implement participants authenticity check
 	buddies := parties(participants)
 	sort.Sort(buddies)
 	return buddies, strings.Join(buddies, "|"), nil

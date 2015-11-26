@@ -347,7 +347,17 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	if err != nil {
 		return nil, err
 	}
-
+	//load subscriptions of the user
+	subscriptions, err := svc.persist.ClientSubscriptions(svc.sess.ID())
+	if err != nil {
+		return nil, errors.New("unable to load subscriptions")
+	}
+	for topic, qos := range subscriptions {
+		_, err := svc.topicsMgr.Subscribe([]byte(topic), byte(qos), &svc.onpub)
+		if err != nil {
+			return nil, errors.New("failed to inject topic to the user")
+		}
+	}
 	resp.SetReturnCode(message.ConnectionAccepted)
 
 	if err = writeMessage(c, resp); err != nil {
