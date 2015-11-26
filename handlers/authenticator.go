@@ -30,7 +30,6 @@ func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
 	KeyReader := func(t *jwt.Token) (interface{}, error) {
 		return this.KeyFile, nil
 	}
-
 	fn := func(w http.ResponseWriter, req *http.Request) {
 		echoErr := func(customError authError) {
 			w.Header().Set("Content-Type", "application/json")
@@ -62,6 +61,7 @@ func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
 			//4. permissions check
 			_, DToken := inspectTokenPermissions(token)
 			c.Env["token"] = DToken
+			fmt.Println("User Id : ", DToken.Sub)
 		}
 		h.ServeHTTP(w, req)
 	}
@@ -83,9 +83,9 @@ func (this Authenticator) ChatToken(c web.C, w http.ResponseWriter, req *http.Re
 }
 
 type authError struct {
-	Code          int        `json:"code"`
-	HttpStatus    int    `json:"-"`
-	Message       string    `json:"message"`
+	Code          int		`json:"code"`
+	HttpStatus    int   	`json:"-"`
+	Message       string	`json:"message"`
 }
 
 /**

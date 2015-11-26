@@ -33,10 +33,10 @@ type Redis struct {
 func NewRedis(host, pass string, db int) (*Redis, error) {
 	//prepare client
 	rClient := redis.NewClient(&redis.Options{
-	Addr : host,
-	Password : pass,
-	DB : int64(db),
-})
+		Addr : host,
+		Password : pass,
+		DB : int64(db),
+	})
 	_, err := rClient.Ping().Result()
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func NewRedis(host, pass string, db int) (*Redis, error) {
 	//prepare flushing channel
 	//todo : take care of the channel buffer; size should be non blocking
 	newRedis.flushTunnel = make(chan *flushPack)
-	newRedis.flush()
+	newRedis.flusher()
 	return newRedis, nil
 }
 
@@ -57,38 +57,17 @@ func NewRedis(host, pass string, db int) (*Redis, error) {
 //returns the shadow;
 //The param clientTopic is assumed to follow the format of
 //user_id_1|user_id_2|user_id_3
-func (this *Redis) NewSubscription(clientTopic string) (error) {
-	_, err := this.TopicShadow(clientTopic)
+func (this *Redis) NewSubscription(clientTopic string, authorier func(...string) bool) (error) {
+	buddies, nickName, err := this.ClientGroupBuddies(clientTopic)
+	if err != nil {
+		return err
+	}
+	//authorization
+	if !authorier(buddies...) {
+		return errors.New("unauthorized chat group")
+	}
+	_, err = this.groupShadow(buddies, nickName)
 	return err
-}
-
-//ShadowTopic returns the intenally used topic name for the
-//flat name given; If no topic exist for the given string,
-//TopicShadow will generate a new topic (here after known
-//as shadow), register it in the persistence and will be returned;
-func (this *Redis) TopicShadow(clientTopic string) (string, error) {
-	buddies, nickName, err := this.clientGroupBuddies(clientTopic)
-	if err != nil {
-		return "", err
-	}
-	return this.groupShadow(buddies, nickName)
-}
-
-//GroupShadow returns the internally used topic name for
-//the set of participants in a group; If an internal name
-//exist for the group, it will be returned, otherwise,
-//GroupShadow will generate a new topic (here after known
-//as shadow), register it in the persistence and will be returned;
-//A shadow can be changed at any point in execution even by any
-//other paralley running machine. So shadow can't be kept in
-//memory without a two way synch up mechanism;
-func (this *Redis) GroupShadow(group []string) (string, error){
-	flatGroup := strings.Join(group, PARTICIPANTS_SEPERATOR)
-	buddies, nickName, err := this.clientGroupBuddies(flatGroup)
-	if err != nil {
-		return "", err
-	}
-	return this.groupShadow(buddies, nickName)
 }
 
 //Unsubscribe handles the unsubsribing of the client from a user group;
@@ -99,7 +78,7 @@ func (this *Redis) Unsubscribe(unsubscriber, flatGroupName string) {
 //Set for setting values in db; returns error
 func (this *Redis) SetChatToken(key string, token models.Token) error {
 	//todo : save token for user information
-	_, err := this.client.Set("user_" + key, token.Sub, time.Duration(0)).Result()
+	_, err := this.client.Set("user_"+key, token.Sub, time.Duration(0)).Result()
 	return err
 }
 
@@ -112,8 +91,12 @@ func (this *Redis) GetChatToken(key string) (string, error) {
 //Flush expects topic used in client side and the message.
 //Flush will recover the shadow for the group and store the
 //message;
-func (this *Redis) Flush(groupLabel string, msg *models.Message) (error) {
-	shadow, err := this.TopicShadow(groupLabel)
+func (this *Redis) Flush(groupName string, msg *models.Message) (error) {
+	_, nickName, err := this.ClientGroupBuddies(groupName)
+	if err != nil {
+		return err
+	}
+	shadow, err := this.existingShadow(nickName)
 	if err != nil {
 		return err
 	}
@@ -122,8 +105,8 @@ func (this *Redis) Flush(groupLabel string, msg *models.Message) (error) {
 }
 
 //Scan implements scanning of the chat history
-func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int)([]models.Message, error) {
-	_, nickName, err := this.clientGroupBuddies(clientGroupLabel)
+func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int) ([]models.Message, error) {
+	_, nickName, err := this.ClientGroupBuddies(clientGroupLabel)
 	if err != nil {
 		//todo : deal error
 	}
@@ -137,32 +120,28 @@ func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int)([]mo
 func (this *Redis) ChatList(userId string) ([]string, error) {
 	//todo : parsing of error may be needed for checking whether
 	//todo : the error is of not found kind;
-	 return this.client.HKeys(userId).Result()
+	return this.client.HKeys(userId).Result()
 }
 
-
 func (this *Redis) groupShadow(buddies []string, flatGroup string) (string, error) {
-	val, readError := this.client.Get(flatGroup).Result()
-	//todo : consider the error case here; another level of refining may be needed
-	if readError == nil {
-		return val, nil
+	shadow, err := this.existingShadow(flatGroup)
+	if err == nil{
+		//todo : refine error to further level for detecting s/m failure
+		return shadow, nil
 	}
 	//create and register a new shadow
 	return this.newShadow(flatGroup, buddies)
 }
 
-func (this *Redis) scan(userId, nickName string, offSet, count int)([]models.Message, error) {
+func (this *Redis) scan(userId, nickName string, offSet, count int) ([]models.Message, error) {
 	shadow, err := this.client.HGet(userId, nickName).Result()
 	if err != nil {
 		//todo : deal error
-		fmt.Println("Error in HGet for ", userId, " under group ", nickName)
 		return []models.Message{}, err
 	}
-	fmt.Println("Shadaow obtained in scan : ", shadow)
 	list, err := this.client.LRange(shadow, int64(offSet), int64(count)).Result()
 	if err != nil {
 		//todo : deal error
-		fmt.Println("Error in LRange for shadow : ", shadow)
 		return []models.Message{}, err
 		//return
 	}
@@ -175,6 +154,10 @@ func (this *Redis) scan(userId, nickName string, offSet, count int)([]models.Mes
 	return result, nil
 }
 
+func (this *Redis) existingShadow(nickName string) (string, error) {
+	return this.client.Get(nickName).Result()
+}
+
 //newShadow generates a new shadow topic (for internal use) for the
 //given users and registers the same in topic list; It also registers
 //an entry in persistence with the key being the shadow and value
@@ -182,11 +165,11 @@ func (this *Redis) scan(userId, nickName string, offSet, count int)([]models.Mes
 func (this *Redis) newShadow(flatGroup string, groupMembers []string) (string, error) {
 	//todo : perform authorization of the group members here
 	this.hasher.Reset()
-//	_, err := this.hasher.Write([]byte(flatGroup))
-//	if err != nil {
-//		return "", err
-//	}
-//	shadow := string(this.hasher.Sum(nil))
+	//	_, err := this.hasher.Write([]byte(flatGroup))
+	//	if err != nil {
+	//		return "", err
+	//	}
+	//	shadow := string(this.hasher.Sum(nil))
 	//todo : code is experimental
 	shadow := strconv.Itoa(int(time.Now().UTC().Unix()))
 	//register the shadow in topic list mapper
@@ -208,7 +191,7 @@ func (this *Redis) newShadow(flatGroup string, groupMembers []string) (string, e
 			fmt.Println("HExist : Topic Exist for this user")
 			//todo : replace current value with an append
 			continue
-		}else{
+		}else {
 			fmt.Println("regestering shadow topic for : ", userId)
 			_, err = this.client.HSet(userId, flatGroup, shadow).Result()
 			if err != nil {
@@ -227,7 +210,7 @@ func (this *Redis) dumpInFlushSink(shadow string, message []byte) {
 }
 
 //flush listens on the channel for input messages and flushes it to db
-func (this *Redis) flush() {
+func (this *Redis) flusher() {
 	//todo : this method does not mind the order of incoming messages
 	go func() {
 		for {
@@ -246,8 +229,8 @@ func (this *Redis) flush() {
 }
 
 //clientGroup buddies returns the names of participants in a client chat group
-//along with the internally used name to represent the client group;
-func (this *Redis) clientGroupBuddies(clientTopic string) ([]string, string, error){
+//along with the internally used name(group nick name) to represent the client group;
+func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, error) {
 	participants := strings.Split(clientTopic, PARTICIPANTS_SEPERATOR)
 	if len(participants) < 2 {
 		return []string{}, "", errors.New("invalid number of participants")

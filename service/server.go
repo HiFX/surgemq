@@ -119,6 +119,9 @@ type Server struct {
 
 	//redis client
 	redis *persistence.Redis
+
+	//custom authorization module
+	authorization func(...string)bool
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
@@ -314,19 +317,12 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 
 //	Authenticate the user, if error, return error and exit
 //		if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
-//			resp.SetReturnCode(message.ErrBadUsernameOrPassword)
-//			resp.SetSessionPresent(false)
-//			writeMessage(conn, resp)
-//			return nil, err
-//		}
-
-	//Authenticate the user, if error, return error and exit
-	if err := this.authenticate(string(req.Username()), string(req.Password())); err != nil {
-		resp.SetReturnCode(message.ErrBadUsernameOrPassword)
-		resp.SetSessionPresent(false)
-		writeMessage(conn, resp)
-		return nil, err
-	}
+		if err := this.authenticate(string(req.Username()), string(req.Password())); err != nil {
+			resp.SetReturnCode(message.ErrBadUsernameOrPassword)
+			resp.SetSessionPresent(false)
+			writeMessage(conn, resp)
+			return nil, err
+		}
 
 	if req.KeepAlive() == 0 {
 		req.SetKeepAlive(minKeepAlive)
@@ -343,6 +339,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		sessMgr:   this.sessMgr,
 		topicsMgr: this.topicsMgr,
 		persist: this.redis,
+		authorizer : this.authorization,
 	}
 
 

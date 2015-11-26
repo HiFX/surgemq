@@ -345,7 +345,7 @@ func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) err
 	subscribers := strings.Split(strTopic, "|")
 	//todo : imiplement authorization logic for creating a conversation
 	//todo : among the listed users.
-	err := this.persist.NewSubscription(strTopic)
+	err := this.persist.NewSubscription(strTopic, this.authorizer)
 	if err != nil {
 		fmt.Println("persistence subscription error : ", err)
 	}

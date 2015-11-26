@@ -21,9 +21,8 @@ type ServiceWrapper struct {
 
 //NewService returns a server
 //Params :
-//		auth : authentication function;
-//		topic_authorization : topic authorization function;
-func NewService(webSocketPort, redisHost, redisPass string, redisDB int, keyFilePath string) (*ServiceWrapper, error) {
+func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
+		keyFilePath string, authorizer func(...string)bool) (*ServiceWrapper, error) {
 	//todo : validate webSocket port to follow the format of :1234
 
 	persist, err := persistence.NewRedis(redisHost, redisPass, redisDB)
@@ -38,6 +37,7 @@ func NewService(webSocketPort, redisHost, redisPass string, redisDB int, keyFile
 		SessionsProvider: DefaultSessionsProvider,
 		TopicsProvider:   DefaultTopicsProvider,
 		redis:    persist,
+		authorization: authorizer,
 	}
 
 	keyFile, readError := readPublicKey(keyFilePath)

@@ -124,6 +124,8 @@ type service struct {
 	rmsgs []*message.PublishMessage
 	//persistence module
 	persist *persistence.Redis
+	//authorization
+	authorizer func(...string) bool
 }
 
 func (this *service) start() error {
