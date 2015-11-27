@@ -152,7 +152,8 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 	if err == nil{
 		//todo : refine error to further level for detecting s/m failure
 		//a shadow already exist for this nick name;
-		//get active users of this group
+		//get active users of this group and add calling
+		//member only to the list under new shadow;
 		activeUsers, err := this.getBuddyList(nickName)
 		if err != nil {
 			//todo : deal error
@@ -186,6 +187,8 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 			if err != nil {
 				//todo : deal error; cannot be proceeded
 			}
+			//add the calling user to the list, leaving all unsubscribed users as it is;
+			buddies = append(activeUsers, userId)
 		}
 	}
 	//create and register a new shadow
