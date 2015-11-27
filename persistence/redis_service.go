@@ -19,8 +19,14 @@ import (
 
 const (
 	PARTICIPANTS_SEPERATOR = "|"
-	USER_GROUP_PREFIX = "ug"
 	KALAPILA_MAX_QOS = 2
+	USER_GROUP_PREFIX = "ug"
+	BUDDY_LIST_PREFIX = "bl"
+	NICK_SHADOW_PREFIX = "ns"
+	CHAT_TOKEN_PREFIX = "ct"
+	USER_HISTORY_PREFIX = "uh"
+	CHAT_HISTORY_PREFIX = "ch"
+	USER_PROFILE_PREFIX = "up"
 )
 
 //todo : may have to implement a close function for winding up the
@@ -59,16 +65,16 @@ func NewRedis(host, pass string, db int) (*Redis, error) {
 //returns the shadow;
 //The param clientTopic is assumed to follow the format of
 //user_id_1|user_id_2|user_id_3
-func (this *Redis) Subscribe(clientTopic string, qos int, authorier func(...string) bool) (error) {
+func (this *Redis) Subscribe(clientTopic, userId string, qos int, authorizer func(...string) bool) (error) {
 	buddies, nickName, err := this.ClientGroupBuddies(clientTopic)
 	if err != nil {
 		return err
 	}
 	//authorization
-	if !authorier(buddies...) {
+	if !authorizer(buddies...) {
 		return errors.New("unauthorized chat group")
 	}
-	_, err = this.groupShadow(buddies, nickName, clientTopic, qos)
+	_, err = this.groupShadow(buddies, nickName, clientTopic, userId, qos)
 	return err
 }
 
@@ -78,15 +84,13 @@ func (this *Redis) Unsubscribe(unsubscriber, flatGroupName string) {
 }
 
 //Set for setting values in db; returns error
-func (this *Redis) SetChatToken(key string, token models.Token) error {
-	//todo : save token for user information
-	_, err := this.client.Set("user_"+key, token.Sub, time.Duration(0)).Result()
-	return err
+func (this *Redis) SetChatToken(userId string, token models.Token) error {
+	return this.setChatToken(userId, token)
 }
 
 //Get for getting values from db; returns value and error
-func (this *Redis) GetChatToken(key string) (string, error) {
-	return this.client.Get("user_" + key).Result()
+func (this *Redis) GetChatToken(userId string) (string, error) {
+	return this.getChatToken(userId)
 }
 
 //Flush : for storing a message in the persistence module;
@@ -126,14 +130,49 @@ func (this *Redis) ChatList(userId string) ([]string, error) {
 }
 
 func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error){
-	return this.readUserGroupNames(userId)
+	return this.getUserGroupNames(userId)
 }
 
-func (this *Redis) groupShadow(buddies []string, nickName, clientGroup string, qos int) (string, error) {
+func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId string, qos int) (string, error) {
 	shadow, err := this.existingShadow(nickName)
 	if err == nil{
 		//todo : refine error to further level for detecting s/m failure
-		return shadow, nil
+		//a shadow already exist for this nick name;
+		//get active users of this group
+		activeUsers, err := this.getBuddyList(nickName)
+		if err != nil {
+			//todo : deal error
+		}
+		if len(activeUsers) == len(buddies){
+			//false subscribe request
+			return shadow, nil
+		}
+		if foundInArray(buddies, userId) && !foundInArray(activeUsers, userId) {
+			//requesting user is no longer part of the existing topic under the nick name;
+			//rename existing entries
+			//	1. nickName - shadow mapping : will automatically replaced on new shadow creation
+			//	2. user - nickName - shadow mapping
+			//	3. user - nickName - clientGroup mapping
+			now := time.Now().UTC().Unix()
+			newNick := fmt.Sprintf("%s_%d", nickName, now)
+			for _, user := range activeUsers {
+				//2...
+				err := this.renameNickOfUserChat(user, nickName, newNick)
+				if err != nil {
+					//todo : deal error
+				}
+				//3...
+				err = this.renameNickOfUserGroup(user, nickName, newNick)
+				if err != nil {
+					//todo : deal error ; cannot proceed
+				}
+			}
+			//	4. buddy list, (nickName - active_users) mapping
+			err = this.renameBuddyList(nickName, newNick)
+			if err != nil {
+				//todo : deal error; cannot be proceeded
+			}
+		}
 	}
 	//create and register a new shadow
 	return this.newShadow(buddies, nickName, clientGroup, qos)
@@ -179,37 +218,27 @@ func (this *Redis) newShadow(buddies []string, nickName, clientGroupName string,
 	//todo : code is experimental
 	shadow := strconv.Itoa(int(time.Now().UTC().Unix()))
 	//1. register the shadow in topic list mapper
-	setError := this.client.Set(nickName, shadow, time.Duration(0)).Err()
-	if setError != nil {
-		return "", setError
+	err := this.setNickShadow(nickName, shadow)
+	if err != nil {
+		//todo : deal error
 	}
 	//2. register active users of the shadow as list
-	this.client.LPush(nickName, buddies...)
+	err = this.setBuddyList(nickName, buddies)
+	if err != nil {
+		//todo : deal error
+	}
 	//3. register shadow for all participants under the nick name.
-	//4. register user group name under nick name for topic
+	//4. register user group name under nick name for topic -
 	//re-loading on warm up after a down time for all participants
 	for _, userId := range buddies {
 		//3. ...
-		status, err := this.client.HExists(userId, nickName).Result()
+		err := this.setUserChatHistory(userId, nickName, shadow)
 		if err != nil {
 			//todo : deal error
-			fmt.Println("HExists Error..")
-			continue
 		}
-		if status {
-			fmt.Println("HExist : Topic Exist for this user")
-			//todo : replace current value with an append
-			continue
-		}else {
-			fmt.Println("regestering shadow topic for : ", userId)
-			_, err = this.client.HSet(userId, nickName, shadow).Result()
-			if err != nil {
-				//todo : deal error
-				fmt.Println("Error in regestering shadow topic for : ", userId, "; Error : ", err)
-			}
-		}
+
 		//4. ...
-		if err = this.registerUserGroup(userId, nickName, clientGroupName, qos); err != nil {
+		if err = this.setUserGroup(userId, nickName, clientGroupName, qos); err != nil {
 			//todo : deal error
 			return "", err
 		}
@@ -218,7 +247,7 @@ func (this *Redis) newShadow(buddies []string, nickName, clientGroupName string,
 	return shadow, nil
 }
 
-func (this *Redis)registerUserGroup(userId, nickName, userGroupName string, qos int) error {
+func (this *Redis)setUserGroup(userId, nickName, userGroupName string, qos int) error {
 	if qos > KALAPILA_MAX_QOS {
 		return errors.New("invalid qos")
 	}
@@ -230,7 +259,7 @@ func (this *Redis)registerUserGroup(userId, nickName, userGroupName string, qos 
 	return err
 }
 
-func (this *Redis)readUserGroupNames(userId string) (map[string]int , error) {
+func (this *Redis)getUserGroupNames(userId string) (map[string]int , error) {
 	result := make(map[string]int)
 	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
 	values, err :=  this.client.HVals(label).Result()
@@ -246,6 +275,20 @@ func (this *Redis)readUserGroupNames(userId string) (map[string]int , error) {
 		result[groupName] = qos
 	}
 	return result, nil
+}
+
+func (this *Redis) renameNickOfUserGroup(userId, oldNick, newNick string) error {
+	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
+	clientGroupName, err := this.client.HGet(label, oldNick).Result()
+	if err != nil {
+		//todo : deal error
+	}
+	_, err = this.client.HDel(label, oldNick).Result()
+	if err != nil {
+		//todo : deal error
+	}
+	_, err = this.client.HSet(label, newNick, clientGroupName).Result()
+	return err
 }
 
 func (this *Redis) dumpInFlushSink(shadow string, message []byte) {
@@ -273,6 +316,83 @@ func (this *Redis) flusher() {
 	return
 }
 
+func (this *Redis) setBuddyList(nickName string, buddies []string) (error){
+	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
+	_, err := this.client.LPush(label, buddies...).Result()
+	return err
+}
+
+func (this *Redis) getBuddyList(nickName string) ([]string, error) {
+	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
+	len, err := this.client.LLen(label).Result()
+	if err != nil {
+		return []string{}, err
+	}
+	return this.client.LRange(label, 0, len).Result()
+}
+
+func (this *Redis) renameBuddyList(oldNick, newNick string) (error) {
+	oldNick = fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, oldNick)
+	newNick = fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, newNick)
+	_, err := this.client.Rename(oldNick, newNick).Result()
+	return err
+}
+
+func (this *Redis) setNickShadow(nickName, shadow string) (error) {
+	label := fmt.Sprintf("%s_%s", NICK_SHADOW_PREFIX, nickName)
+	_, err := this.client.Set(label, shadow, time.Duration(0)).Result()
+	return err
+}
+
+func (this *Redis) getNickShadow(nickName string) (string, error) {
+	label := fmt.Sprintf("%s_%s", NICK_SHADOW_PREFIX, nickName)
+	return this.client.Get(label).Result()
+}
+
+func (this *Redis) renameNickOfNickShadow(oldNick, newNick string) (error) {
+	oldNick = fmt.Sprintf("%s_%s", NICK_SHADOW_PREFIX, oldNick)
+	newNick = fmt.Sprintf("%s_%s", NICK_SHADOW_PREFIX, newNick)
+	_, err := this.client.Rename(oldNick, newNick).Result()
+	return err
+}
+
+func (this *Redis) setChatToken(userId string, token models.Token) (error) {
+	//todo : save token for user information
+	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
+	_, err := this.client.Set(label, token.Sub, time.Duration(0)).Result()
+	return err
+}
+
+func (this *Redis) getChatToken(userId string) (string, error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
+	return this.client.Get(label).Result()
+}
+
+func (this *Redis) setUserChatHistory(userId, nickName, shadow string) (error){
+	label := fmt.Sprintf("%s_%s", USER_HISTORY_PREFIX, userId)
+	_, err := this.client.HSet(label, nickName, shadow).Result()
+	return err
+}
+
+func (this *Redis) userChatHistoryForNick(userId, nickName string)(string, error) {
+	label := fmt.Sprintf("%s_%s", USER_HISTORY_PREFIX, userId)
+	return this.client.HGet(label, nickName).Result()
+}
+
+func (this *Redis) renameNickOfUserChat(userId, oldNick, newNick string) (error) {
+	label := fmt.Sprintf("%s_%s", USER_HISTORY_PREFIX, userId)
+	userShadow, err := this.client.HGet(label, oldNick).Result()
+	if err != nil {
+		//todo : deal error
+	}
+	_, err = this.client.HDel(label, oldNick).Result()
+	if err != nil {
+		//todo : deal error
+	}
+	_, err = this.client.HSet(label, newNick, userShadow).Result()
+	return err
+}
+
 //clientGroup buddies returns the names of participants in a client chat group
 //along with the internally used name(group nick name) to represent the client group;
 func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, error) {
@@ -285,6 +405,7 @@ func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, err
 	sort.Sort(buddies)
 	return buddies, strings.Join(buddies, "|"), nil
 }
+
 
 type flushPack struct {
 	shadow  string
@@ -314,4 +435,13 @@ func (this parties) Swap(i, j int) {
 
 func (this parties) Less(i, j int) bool {
 	return this[i] < this[j]
+}
+
+func foundInArray(holder []string, child string) bool {
+	for _, elem := range holder {
+		if elem == child {
+			return true
+		}
+	}
+	return false
 }

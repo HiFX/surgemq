@@ -348,7 +348,7 @@ func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) err
 
 	strTopic := string(topic)
 	subscribers := strings.Split(strTopic, "|")
-	err := this.persist.Subscribe(strTopic, qos, this.authorizer)
+	err := this.persist.Subscribe(strTopic, this.sess.ID(), qos, this.authorizer)
 	if err != nil {
 		//todo : this can be an authorization error
 		fmt.Println("persistence subscription error : ", err)
