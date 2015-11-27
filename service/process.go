@@ -179,7 +179,8 @@ func (this *service) processIncoming(msg message.Message) error {
 
 	case *message.UnsubscribeMessage:
 		// For UNSUBSCRIBE message, we should remove subscriber, then send back UNSUBACK
-		return this.processUnsubscribe(msg)
+		return this.unubscribePreProcessor(msg)
+//		return this.processUnsubscribe(msg)
 
 	case *message.UnsubackMessage:
 		// For UNSUBACK message, we should send to ack queue
@@ -409,6 +410,19 @@ func (this *service) processSubscribe(msg *message.SubscribeMessage) error {
 	}
 
 	return nil
+}
+
+func (this *service) unubscribePreProcessor(msg *message.UnsubscribeMessage) error {
+	topics := msg.Topics()
+
+	for _, t := range topics {
+		err := this.persist.Unsubscribe(string(t), this.sess.ID())
+		if err != nil {
+			//todo : deal error
+		}
+	}
+
+	return this.processUnsubscribe(msg)
 }
 
 // For UNSUBSCRIBE message, we should remove the subscriber, and send back UNSUBACK

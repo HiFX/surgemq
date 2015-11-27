@@ -79,8 +79,12 @@ func (this *Redis) Subscribe(clientTopic, userId string, qos int, authorizer fun
 }
 
 //Unsubscribe handles the unsubsribing of the client from a user group;
-func (this *Redis) Unsubscribe(unsubscriber, flatGroupName string) {
-	//todo
+func (this *Redis) Unsubscribe(clientTopic, unsubscriber string) (error) {
+	buddies, nickName, err := this.ClientGroupBuddies(clientTopic)
+	if err != nil {
+		return err
+	}
+	return this.unsubscribe(buddies, nickName, clientTopic, unsubscriber)
 }
 
 //Set for setting values in db; returns error
@@ -131,6 +135,16 @@ func (this *Redis) ChatList(userId string) ([]string, error) {
 
 func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error){
 	return this.getUserGroupNames(userId)
+}
+
+func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, userId string) error {
+	err := this.removeFromBuddyList(nickName, userId)
+	if err != nil {
+		//todo : deal error
+		return errors.New("unsubscribe failed; failed to remve from buddy list")
+	}
+	_,err = this.groupShadow(buddies, nickName, clientGroupName, userId, 1)
+	return err
 }
 
 func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId string, qos int) (string, error) {
@@ -338,6 +352,11 @@ func (this *Redis) renameBuddyList(oldNick, newNick string) (error) {
 	return err
 }
 
+func (this *Redis) removeFromBuddyList(nickName, user string) (error) {
+	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
+	_, err := this.client.LRem(label, 0, user).Result()
+	return err
+}
 func (this *Redis) setNickShadow(nickName, shadow string) (error) {
 	label := fmt.Sprintf("%s_%s", NICK_SHADOW_PREFIX, nickName)
 	_, err := this.client.Set(label, shadow, time.Duration(0)).Result()
