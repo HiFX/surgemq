@@ -145,7 +145,7 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 		return err
 	}
 	if !foundInArray(activeBuddies, userId) {
-		//invoking user is no longer active subscriber of the group
+		//invoking user is no longer active subscriber of the group; nothing to do
 		fmt.Println("invoking user is no longer active subscriber of the group")
 		return nil
 	}
@@ -184,6 +184,10 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 		return err
 	}
 	fmt.Println("Unsubscription Success ; Remaining Users :", remainingBuddies)
+	if len(remainingBuddies) <= 1  {
+		//the solo talker; nothing to do; return
+		return nil
+	}
 	_ ,err = this.newShadow(remainingBuddies, nickName, clientGroupName, 1)
 	return err
 }
@@ -365,6 +369,10 @@ func (this *Redis) renameNickOfUserGroup(userId, oldNick, newNick string) error 
 	_, err = this.client.HDel(label, oldNick).Result()
 	if err != nil && err != redis.Nil {
 		return err
+	}
+	if len(clientGroupName) == 0 {
+		fmt.Println("Renaming Client Group Name is empty; returning..")
+		return nil
 	}
 	_, err = this.client.HSet(label, newNick, clientGroupName).Result()
 	if err == nil || err == redis.Nil {
