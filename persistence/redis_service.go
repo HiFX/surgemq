@@ -31,6 +31,14 @@ const (
 	CHAT_TIME_LINE_PREFIX = "tl"
 )
 
+var (
+	profileId       string            = "usr_id"
+	profileEmail        string         = "email"
+	profileFirstName        string     = "usr_first_name"
+	profileLastName     string      = "usr_last_name"
+	profileProfileImage     string  = "usr_image"
+)
+
 //todo : may have to implement a close function for winding up the
 //todo : operations, closing the connections and closing the clannels
 //todo : for perfect synchronization;
@@ -151,7 +159,7 @@ func (this *Redis) ChatList(userId string, from, to int64) ([]models.ChatList, e
 		return finalResult, err
 	}
 	finalResult = make([]models.ChatList, len(nickSorted))
-	memberPool := make(map[string]models.Member)
+	memberPool := make(map[string]map[string]string)
 	for j, nickName := range nickSorted{
 		//get information about this chat
 		activeMembers, err := this.getBuddyList(nickName)
@@ -161,14 +169,15 @@ func (this *Redis) ChatList(userId string, from, to int64) ([]models.ChatList, e
 		//obtain information of active members
 		chatMembers := make([]models.Member, len(activeMembers))
 		for i, memberId := range activeMembers {
-			memberInfo, found := memberPool[memberId]
+			info, found := memberPool[memberId]
 			if !found {
-				name := memberId
-				//todo: get user profile
-				//todo : add to members
-				memberInfo = models.Member{Id : memberId, Name : name}
+				info, err = this.getUserProfile(memberId)
+				if err != nil {
+					continue
+				}
+				memberPool[memberId] = info
 			}
-			chatMembers[i] = memberInfo
+			chatMembers[i] = models.Member{Id : memberId, Name : fmt.Sprintf("%s %s ", info[profileFirstName], info[profileLastName] )}
 		}
 		finalResult[j] = models.ChatList{Key : nickName, Info : models.ChatInfo{Members : chatMembers}}
 	}
@@ -583,10 +592,31 @@ func (this *Redis) setChatToken(userId string, token models.Token) (error) {
 	//todo : save token for user information
 	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
 	_, err := this.client.Set(label, token.Sub, time.Duration(0)).Result()
-	if err == nil || err == redis.Nil {
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	return this.setUserProfile(token)
+}
+
+func (this *Redis) setUserProfile(token models.Token) (error){
+	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX,token.Sub)
+	_, err := this.client.HMSet(label, profileId, token.Sub, profileEmail, token.Email, profileFirstName, token.FirstName,
+	profileLastName, token.LastName, profileProfileImage, token.ProfileImage).Result()
+	if err == redis.Nil {
 		return nil
 	}
 	return err
+}
+
+func (this *Redis) getUserProfile(userId string) (map[string]string, error) {
+	fmt.Println("User profiel of ", userId)
+	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX,userId)
+	result, err  := this.client.HGetAllMap(label).Result()
+	fmt.Println("Profile : ", result)
+	if err == redis.Nil {
+		return result, nil
+	}
+	return result, err
 }
 
 func (this *Redis) getChatToken(userId string) (string, error) {
