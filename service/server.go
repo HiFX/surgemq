@@ -261,7 +261,7 @@ func (this *Server) Close() error {
 	if this.topicsMgr != nil {
 		this.topicsMgr.Close()
 	}
-
+	this.redis.Close()
 	return nil
 }
 

@@ -57,6 +57,7 @@ func NewRedis(host, pass string, db int) (*Redis, error) {
 	//todo : take care of the channel buffer; size should be non blocking
 	newRedis.flushTunnel = make(chan *flushPack)
 	newRedis.flusher()
+	newRedis.initialCleanUp()
 	return newRedis, nil
 }
 
@@ -146,6 +147,11 @@ func (this *Redis) ChatList(userId string) ([]string, error) {
 
 func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error) {
 	return this.getUserGroupNames(userId)
+}
+
+func (this *Redis) Close(){
+	this.initialCleanUp()
+	close(this.flushTunnel)
 }
 
 //connected user's online status; Looks for individual users only.
@@ -604,6 +610,16 @@ func (this *Redis) onlineUsersList() ([]string, error) {
 	return list, err
 }
 
+func (this *Redis) initialCleanUp()(error) {
+	return this.cleanOnlineStatuses()
+}
+func (this *Redis) cleanOnlineStatuses() (error) {
+	_, err := this.client.Del(ONLINE_USERS_KEY).Result()
+	if err == redis.Nil {
+		return nil
+	}
+	return err
+}
 //clientGroup buddies returns the names of participants in a client chat group
 //along with the internally used name(group nick name) to represent the client group;
 func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, error) {
