@@ -16,7 +16,6 @@ type OnlineUsers struct {
 func (this *OnlineUsers) OnlineBuddies(c web.C, w http.ResponseWriter, req *http.Request) {
 	dToken, _ := c.Env["token"]
 	oToken, _ := dToken.(models.Token)
-	oToken = oToken
 	buddies, err := this.Persist.BuddiesOnline(oToken.Sub)
 	if err != nil {
 		//todo : deal error

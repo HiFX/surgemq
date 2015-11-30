@@ -12,6 +12,7 @@ import (
 	"github.com/HiFX/surgemq/persistence"
 	"strconv"
 	"fmt"
+	"github.com/HiFX/surgemq/models"
 )
 
 type History struct {
@@ -54,15 +55,14 @@ func (this *History) History(c web.C, w http.ResponseWriter, req *http.Request) 
 
 //Chats returns all unique chats of the user
 func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request){
-	fmt.Println("Chat Rooms Invoked")
 	var (
-		user_id	string = "user_id"
 		offset	string = "offset"
 		count	string = "count"
 	)
-	userId := req.FormValue(user_id)
 	offsetStr := req.FormValue(offset)
 	countStr := req.FormValue(count)
+	dToken, _ := c.Env["token"]
+	oToken, _ := dToken.(models.Token)
 
 	offsetInt, convErr := strconv.Atoi(offsetStr)
 	if convErr != nil {
@@ -76,19 +76,11 @@ func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request
 		countInt = 25
 	}
 
-	list, err := this.Redis.ChatList(userId)
+	list, err := this.Redis.ChatList(oToken.Sub, int64(offsetInt), int64(countInt))
 	if err != nil {
 		//todo : deal error
 		return
 	}
-	length := len(list)
-	if offsetInt > length {
-		this.Respond(w, 200, []string{})
-		return
-	}
-	if offsetInt + countInt > length {
-		countInt = length
-	}
-	this.Respond(w, 200, list[offsetInt:offsetInt + countInt])
+	this.Respond(w, 200, list)
 }
 

@@ -28,6 +28,7 @@ const (
 	CHAT_HISTORY_PREFIX    = "ch"
 	USER_PROFILE_PREFIX    = "up"
 	ONLINE_USERS_KEY       = "online_users"
+	CHAT_TIME_LINE_PREFIX = "tl"
 )
 
 //todo : may have to implement a close function for winding up the
@@ -123,6 +124,8 @@ func (this *Redis) Flush(groupName string, msg *models.Message) (error) {
 		return err
 	}
 	this.dumpInFlushSink(shadow, msg.Serialize())
+	//todo : error not considered here
+	this.addChatTimeLine(msg.Who, nickName)
 	return nil
 }
 
@@ -139,10 +142,37 @@ func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int) ([]m
 //An identifier is usually a string which is actually a combination of
 //ids of the participating clients seperated by |. A client should exchange
 //a chat identifier for loading the chat history;
-func (this *Redis) ChatList(userId string) ([]string, error) {
+func (this *Redis) ChatList(userId string, from, to int64) ([]models.ChatList, error) {
 	//todo : parsing of error may be needed for checking whether
 	//todo : the error is of not found kind;
-	return this.client.HKeys(userId).Result()
+	var finalResult []models.ChatList
+	nickSorted, err := this.rangeChatTimeLine(userId, from, to)
+	if err != nil {
+		return finalResult, err
+	}
+	finalResult = make([]models.ChatList, len(nickSorted))
+	memberPool := make(map[string]models.Member)
+	for j, nickName := range nickSorted{
+		//get information about this chat
+		activeMembers, err := this.getBuddyList(nickName)
+		if err != nil {
+			return finalResult, err
+		}
+		//obtain information of active members
+		chatMembers := make([]models.Member, len(activeMembers))
+		for i, memberId := range activeMembers {
+			memberInfo, found := memberPool[memberId]
+			if !found {
+				name := memberId
+				//todo: get user profile
+				//todo : add to members
+				memberInfo = models.Member{Id : memberId, Name : name}
+			}
+			chatMembers[i] = memberInfo
+		}
+		finalResult[j] = models.ChatList{Key : nickName, Info : models.ChatInfo{Members : chatMembers}}
+	}
+	return finalResult, nil
 }
 
 func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error) {
@@ -236,6 +266,10 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 		if err != nil {
 			return err
 		}
+		err = this.renameNickOfChatTimeLine(user, nickName, newNick)
+		if err != nil {
+			return err
+		}
 	}
 
 	//remove this entry from user group of this user
@@ -303,6 +337,10 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 				err = this.renameNickOfUserGroup(user, nickName, newNick)
 				if err != nil {
 					//todo : deal error ; cannot proceed
+				}
+				err = this.renameNickOfChatTimeLine(user, nickName, newNick)
+				if err == nil {
+					//todo : deal error
 				}
 			}
 			//	4. buddy list, (nickName - active_users) mapping
@@ -613,6 +651,7 @@ func (this *Redis) onlineUsersList() ([]string, error) {
 func (this *Redis) initialCleanUp()(error) {
 	return this.cleanOnlineStatuses()
 }
+
 func (this *Redis) cleanOnlineStatuses() (error) {
 	_, err := this.client.Del(ONLINE_USERS_KEY).Result()
 	if err == redis.Nil {
@@ -620,6 +659,49 @@ func (this *Redis) cleanOnlineStatuses() (error) {
 	}
 	return err
 }
+
+func (this *Redis) addChatTimeLine(userId, nickName string) (error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
+	z := redis.Z{Member : nickName, Score  : float64(time.Now().UTC().Unix())}
+	_, err := this.client.ZAdd(label, z).Result()
+	if err != redis.Nil {
+		return nil
+	}
+	return err
+}
+
+//todo : make this operation a transaction
+func (this *Redis)renameNickOfChatTimeLine(userId, oldNick, newNick string) (error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
+	zScore, err := this.client.ZScore(label, oldNick).Result()
+	if err != nil && err != redis.Nil {
+		//todo : deal error
+		return err
+	}
+	_, err = this.client.ZRem(label, oldNick).Result()
+	if err != nil && err != redis.Nil {
+		//todo : deal error
+		return err
+	}
+	z := redis.Z{Member : newNick, Score  : zScore}
+	_, err = this.client.ZAdd(label, z).Result()
+	if err != redis.Nil {
+		return nil
+	}
+	return err
+}
+
+//todo : better to check max number chats available before scan
+func (this *Redis) rangeChatTimeLine(userId string, from, to int64) ([]string, error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
+	fmt.Println("label : ", label)
+	keys, err := this.client.ZRevRange(label, from, to).Result()
+	if err == redis.Nil {
+		return keys, nil
+	}
+	return keys, err
+}
+
 //clientGroup buddies returns the names of participants in a client chat group
 //along with the internally used name(group nick name) to represent the client group;
 func (this *Redis) ClientGroupBuddies(clientTopic string) ([]string, string, error) {
