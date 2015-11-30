@@ -17,26 +17,39 @@ package service
 import (
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
-
+	"io"
 	"github.com/surge/glog"
 	"github.com/surgemq/message"
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/models"
 	"time"
+	"sync"
 )
 
 var (
 	errDisconnect = errors.New("Disconnect")
 	conPool       = make(map[string]*service)
+	conPoolLock sync.Mutex
 )
 
 //add to connection pool
 func AddConnToPool(client_id string, srv *service) {
 	if srv != nil {
+		conPoolLock.Lock()
+		defer conPoolLock.Unlock()
 		conPool[client_id] = srv
+	}
+}
+
+//remove from con pool
+func RemoveFromConPool(client_id string) {
+	fmt.Println("Remove from pool for ", client_id, " has been invoked")
+	if _, found := conPool[client_id]; found {
+		conPoolLock.Lock()
+		defer conPoolLock.Unlock()
+		delete(conPool, client_id)
 	}
 }
 
@@ -47,6 +60,17 @@ func FromPooledConn(client_id string) (*service, error) {
 		return nil, errors.New("client not found error")
 	}
 	return con, nil
+}
+
+//get online users
+func OnlineUsers() ([]string) {
+	users := make([]string, len(conPool))
+	count := 0
+	for user, _ := range conPool{
+		users[count] = user
+		count++
+	}
+	return users
 }
 
 // processor() reads messages from the incoming buffer and processes them
@@ -128,7 +152,7 @@ func (this *service) processIncoming(msg message.Message) error {
 		// If QoS == 0, we should just take the next step, no ack required
 		// If QoS == 1, we should send back PUBACK, then take the next step
 		// If QoS == 2, we need to put it in the ack queue, send back PUBREC
-//		err = this.processPublish(msg)
+		//		err = this.processPublish(msg)
 		err = this.publishPreProcessor(msg)
 	case *message.PubackMessage:
 		// For PUBACK message, it means QoS 1, we should send to ack queue
@@ -180,7 +204,7 @@ func (this *service) processIncoming(msg message.Message) error {
 	case *message.UnsubscribeMessage:
 		// For UNSUBSCRIBE message, we should remove subscriber, then send back UNSUBACK
 		return this.unubscribePreProcessor(msg)
-//		return this.processUnsubscribe(msg)
+		//		return this.processUnsubscribe(msg)
 
 	case *message.UnsubackMessage:
 		// For UNSUBACK message, we should send to ack queue
@@ -198,6 +222,7 @@ func (this *service) processIncoming(msg message.Message) error {
 
 	case *message.DisconnectMessage:
 		// For DISCONNECT message, we should quit
+		this.disconnectPreProcessor()
 		this.sess.Cmsg.SetWillFlag(false)
 		return errDisconnect
 
@@ -330,7 +355,7 @@ func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC(), What : string(payLoad)}
 	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
 	if persistError != nil {
-//		todo : handle error
+		//		todo : handle error
 		fmt.Println("Persist error in processor :", persistError)
 	}
 	return this.processPublish(msg)
@@ -451,7 +476,6 @@ func (this *service) onPublish(msg *message.PublishMessage) error {
 		}
 	}
 
-	fmt.Println("Status in this.onPublish; this.subs : ", this.subs)
 	err := this.topicsMgr.Subscribers(msg.Topic(), msg.QoS(), &this.subs, &this.qoss)
 	if err != nil {
 		glog.Errorf("(%s) Error retrieving subscribers list: %v", this.cid(), err)
@@ -475,4 +499,11 @@ func (this *service) onPublish(msg *message.PublishMessage) error {
 	}
 
 	return nil
+}
+
+//disconnectPreProcessor resets online statuses
+func (this *service) disconnectPreProcessor() {
+	client_id := this.sess.ID()
+	RemoveFromConPool(client_id)
+	this.persist.RemoveOnlineUser(client_id)
 }

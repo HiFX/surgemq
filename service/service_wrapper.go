@@ -59,16 +59,19 @@ func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
 	var (
 		history handlers.History
 		auth    handlers.Authenticator
+		users handlers.OnlineUsers
 	)
 	//set up handlers
 	history.Redis = persist
 	auth = handlers.Authenticator{KeyFile : keyFile, ClientId : "some_valid_client", Persist : persist, ModeProd : false}
+	users = handlers.OnlineUsers{Persist : persist}
 	//register middleware
 	mux.Use(gmiddleware.EnvInit)
 	mux.Use(auth.Authenticate)
 	mux.Get("/chat/history", history.History)
 	mux.Get("/chat/rooms", history.ChatRooms)
 	mux.Get("/chat/token", auth.ChatToken)
+	mux.Get("/chat/online/buddies", users.OnlineBuddies)
 	wrapper.mux.Handle("/mqtt", websocket.Handler(soketProxy))
 	wrapper.mux.Handle("/", mux)
 	return wrapper, nil

@@ -27,6 +27,7 @@ const (
 	USER_HISTORY_PREFIX    = "uh"
 	CHAT_HISTORY_PREFIX    = "ch"
 	USER_PROFILE_PREFIX    = "up"
+	ONLINE_USERS_KEY       = "online_users"
 )
 
 //todo : may have to implement a close function for winding up the
@@ -87,6 +88,16 @@ func (this *Redis) Unsubscribe(clientTopic, unsubscriber string) (error) {
 	return this.unsubscribe(buddies, nickName, clientTopic, unsubscriber)
 }
 
+//add user to online list
+func (this *Redis) AddUserOnline(userId string) (error) {
+	return this.setUserOnline(userId)
+}
+
+//remove user from online list
+func (this *Redis) RemoveOnlineUser(userId string) (error) {
+	return this.removeOnlineUser(userId)
+}
+
 //Set for setting values in db; returns error
 func (this *Redis) SetChatToken(userId string, token models.Token) error {
 	return this.setChatToken(userId, token)
@@ -137,6 +148,59 @@ func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error) {
 	return this.getUserGroupNames(userId)
 }
 
+//connected user's online status; Looks for individual users only.
+//Does not considers members of group with more than two participants
+//including the user;
+//todo : may have to be supported with paging
+func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
+	userClientGroupus, err := this.getUserGroupNames(user_id)
+	if err != nil {
+		fmt.Println("User group names getting error; ", err)
+		return []string{}, err
+	}
+	//collect one to one communication with the calling user
+	for nick, _ := range userClientGroupus {
+		if strings.Count(nick, PARTICIPANTS_SEPERATOR) != 1 {
+			delete(userClientGroupus, nick)
+		}
+	}
+	//get active participants of the short listed conversations.
+	actives := make(map[string]bool)
+	for nick, _ := range userClientGroupus {
+		activeBuddies, err := this.getBuddyList(nick)
+		if err != nil {
+			fmt.Println("Buddy List reading error : ", err)
+			return []string{}, err
+		}
+		for _, buds := range activeBuddies {
+			actives[buds] = false
+		}
+	}
+	//remove the calling user from list
+	if _, yes := actives[user_id] ; yes {
+		delete(actives, user_id)
+	}
+	//get status of the rest
+	onlineUsers, err := this.onlineUsersList()
+	if err != nil {
+		fmt.Println("This is the error : ", err)
+		return []string{}, err
+	}
+
+	for _, onlineUser := range onlineUsers {
+		_, yes := actives[onlineUser]
+		actives[onlineUser] = yes
+	}
+	//remove offline buddies
+	onlineBuddies := make([]string, 0)
+	for user, online := range actives {
+		if online {
+			onlineBuddies = append(onlineBuddies, user)
+		}
+	}
+	return onlineBuddies, nil
+}
+
 func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, userId string) error {
 	//	fmt.Println("An unsubscribe Message from : ", userId, " for : ", nickName)
 
@@ -184,11 +248,11 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 		return err
 	}
 	fmt.Println("Unsubscription Success ; Remaining Users :", remainingBuddies)
-	if len(remainingBuddies) <= 1  {
+	if len(remainingBuddies) <= 1 {
 		//the solo talker; nothing to do; return
 		return nil
 	}
-	_ ,err = this.newShadow(remainingBuddies, nickName, clientGroupName, 1)
+	_, err = this.newShadow(remainingBuddies, nickName, clientGroupName, 1)
 	return err
 }
 
@@ -315,7 +379,7 @@ func (this *Redis) removeFromUserGroup(userId, nickName string) error {
 	fmt.Println("Removing from user group for : ", userId, "; Nick Name : ", nickName)
 	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
 	_, err := this.client.HDel(label, nickName).Result()
-	if err == nil || err == redis.Nil{
+	if err == nil || err == redis.Nil {
 		return nil
 	}
 	return err
@@ -423,6 +487,7 @@ func (this *Redis) getBuddyList(nickName string) ([]string, error) {
 	if err == nil || err == redis.Nil {
 		return res, nil
 	}
+	fmt.Println("Buddy list reading error : ", err)
 	return res, err
 }
 
@@ -514,6 +579,29 @@ func (this *Redis) renameNickOfUserChat(userId, oldNick, newNick string) (error)
 		return nil
 	}
 	return err
+}
+
+func (this *Redis) setUserOnline(userId string) (error) {
+	_, err := this.client.SAdd(ONLINE_USERS_KEY, userId).Result()
+	if err == redis.Nil {
+		return nil
+	}
+	return err
+}
+func (this *Redis) removeOnlineUser(userId string) (error) {
+	_, err := this.client.SRem(ONLINE_USERS_KEY, userId).Result()
+	if err == redis.Nil {
+		return nil
+	}
+	return err
+}
+
+func (this *Redis) onlineUsersList() ([]string, error) {
+	list, err := this.client.SMembers(ONLINE_USERS_KEY).Result()
+	if err == redis.Nil {
+		return list, nil
+	}
+	return list, err
 }
 
 //clientGroup buddies returns the names of participants in a client chat group
