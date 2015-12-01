@@ -246,6 +246,19 @@ func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
 	return onlineBuddies, nil
 }
 
+func (this *Redis) UserBasicProfile(user_id string) (models.UserProfileBasics, error) {
+	profile, err := this.getUserProfile(user_id)
+	if err != nil {
+		//todo : deal error
+	}
+	basicProfile := models.UserProfileBasics{}
+	basicProfile.Id = user_id
+	basicProfile.FirstName = profile[profileFirstName]
+	basicProfile.LastName = profile[profileLastName]
+	basicProfile.ProfileImage = profile[profileProfileImage]
+	return basicProfile, nil
+}
+
 func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, userId string) error {
 	//	fmt.Println("An unsubscribe Message from : ", userId, " for : ", nickName)
 
@@ -255,12 +268,10 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 	}
 	if !foundInArray(activeBuddies, userId) {
 		//invoking user is no longer active subscriber of the group; nothing to do
-		fmt.Println("invoking user is no longer active subscriber of the group")
 		return nil
 	}
 	err = this.removeFromBuddyList(nickName, userId)
 	if err != nil {
-		fmt.Println("unsubscribe failed; failed to remve from buddy list")
 		return errors.New("unsubscribe failed; failed to remve from buddy list")
 	}
 	newNick := fmt.Sprintf("%s_%d", nickName, time.Now().UTC().Unix())
@@ -296,7 +307,6 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 	if err != nil {
 		return err
 	}
-	fmt.Println("Unsubscription Success ; Remaining Users :", remainingBuddies)
 	if len(remainingBuddies) <= 1 {
 		//the solo talker; nothing to do; return
 		return nil
@@ -306,11 +316,8 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 }
 
 func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId string, qos int) (string, error) {
-	fmt.Println("groupShadow invoked for : User ", userId, "; Nick Name : ", nickName, "; Buddies : ", buddies)
 	shadow, err := this.getNickShadow(nickName)
-	fmt.Println("Existing Shadow of nick name : ", shadow)
 	if err == nil && len(shadow) > 0 {
-		fmt.Println("Shadow is exiting for clientGroup : ", clientGroup)
 		//todo : refine error to further level for detecting s/m failure
 		//a shadow already exist for this nick name;
 		//get active users of this group and add calling
@@ -362,7 +369,6 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 		}
 	}
 	//create and register a new shadow
-	fmt.Println("Invoking New Shadow Maker")
 	return this.newShadow(buddies, nickName, clientGroup, qos)
 }
 
@@ -429,7 +435,6 @@ func (this *Redis) newShadow(buddies []string, nickName, clientGroupName string,
 	return shadow, nil
 }
 func (this *Redis) removeFromUserGroup(userId, nickName string) error {
-	fmt.Println("Removing from user group for : ", userId, "; Nick Name : ", nickName)
 	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
 	_, err := this.client.HDel(label, nickName).Result()
 	if err == nil || err == redis.Nil {
@@ -446,7 +451,6 @@ func (this *Redis) setUserGroup(userId, nickName, userGroupName string, qos int)
 	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
 	//attach qos with the client group name
 	value := fmt.Sprintf("%d%s%s", qos, PARTICIPANTS_SEPERATOR, userGroupName)
-	fmt.Println("Set user Group ; label : ", label, " ; value : ", value, " ; Nick name : ", nickName)
 	_, err := this.client.HSet(label, nickName, value).Result()
 	return err
 }
@@ -459,9 +463,6 @@ func (this *Redis) getUserGroupNames(userId string) (map[string]int , error) {
 		//todo : deal error
 		return result, err
 	}
-
-	fmt.Println("Get user group names for : ", userId)
-	fmt.Println("length of value : ", len(values))
 	for _, value := range values {
 		fmt.Println(" value : ", value)
 		value = strings.TrimSpace(value)
@@ -477,7 +478,6 @@ func (this *Redis) getUserGroupNames(userId string) (map[string]int , error) {
 }
 
 func (this *Redis) renameNickOfUserGroup(userId, oldNick, newNick string) error {
-	fmt.Println("Renaming Nick of user group for : ", userId, "; OldNick : ", oldNick, "; NewNick : ", newNick)
 	label := fmt.Sprintf("%s_%s", USER_GROUP_PREFIX, userId)
 	clientGroupName, err := this.client.HGet(label, oldNick).Result()
 	if err != nil && err != redis.Nil {
@@ -488,7 +488,6 @@ func (this *Redis) renameNickOfUserGroup(userId, oldNick, newNick string) error 
 		return err
 	}
 	if len(clientGroupName) == 0 {
-		fmt.Println("Renaming Client Group Name is empty; returning..")
 		return nil
 	}
 	_, err = this.client.HSet(label, newNick, clientGroupName).Result()
@@ -510,7 +509,6 @@ func (this *Redis) flusher() {
 	go func() {
 		for {
 			pack := <-this.flushTunnel
-			fmt.Println("Flushing : ", pack.key(), " : ", pack.value())
 			err := this.client.LPush(pack.key(), pack.value())
 			if err != nil {
 				//todo : deal error
@@ -525,7 +523,6 @@ func (this *Redis) flusher() {
 
 func (this *Redis) setBuddyList(nickName string, buddies []string) (error) {
 	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
-	fmt.Println("setting buddy list : label : ", label, "; buddies : ", buddies)
 	_, err := this.client.SAdd(label, buddies...).Result()
 	if err == nil || err == redis.Nil {
 		return nil
@@ -536,11 +533,9 @@ func (this *Redis) setBuddyList(nickName string, buddies []string) (error) {
 func (this *Redis) getBuddyList(nickName string) ([]string, error) {
 	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
 	res, err := this.client.SMembers(label).Result()
-	fmt.Println("Get from Buddy List for label : ", label)
 	if err == nil || err == redis.Nil {
 		return res, nil
 	}
-	fmt.Println("Buddy list reading error : ", err)
 	return res, err
 }
 
@@ -555,7 +550,6 @@ func (this *Redis) renameBuddyList(oldNick, newNick string) (error) {
 }
 
 func (this *Redis) removeFromBuddyList(nickName, user string) (error) {
-	fmt.Println("Removing buddy from list; Nick Name :", nickName, "; User : ", user)
 	label := fmt.Sprintf("%s_%s", BUDDY_LIST_PREFIX, nickName)
 	_, err := this.client.SRem(label, user).Result()
 	if err == nil || err == redis.Nil {
@@ -609,10 +603,8 @@ func (this *Redis) setUserProfile(token models.Token) (error){
 }
 
 func (this *Redis) getUserProfile(userId string) (map[string]string, error) {
-	fmt.Println("User profiel of ", userId)
 	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX,userId)
 	result, err  := this.client.HGetAllMap(label).Result()
-	fmt.Println("Profile : ", result)
 	if err == redis.Nil {
 		return result, nil
 	}
@@ -724,7 +716,6 @@ func (this *Redis)renameNickOfChatTimeLine(userId, oldNick, newNick string) (err
 //todo : better to check max number chats available before scan
 func (this *Redis) rangeChatTimeLine(userId string, from, to int64) ([]string, error) {
 	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
-	fmt.Println("label : ", label)
 	keys, err := this.client.ZRevRange(label, from, to).Result()
 	if err == redis.Nil {
 		return keys, nil

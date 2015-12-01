@@ -6,7 +6,13 @@ import (
 )
 
 type Message struct{
-	//Who : id of the one who speaks
+	//type determines the type of the message
+	Type	MessageType		`json:"type,omitempty"`
+	//Id : id of the one who speaks
+	Id	string	`json:"id,omitempty"`
+	//Pic : profile image of the speaker
+	Pic	string	`json:"profile_pic,omitempty"`
+	//Who : name of the one who speaks
 	Who string    `json:"who,omitempty"`
 	//When : time in utc unix
 	When    int64    `json:"when,omitempty"`

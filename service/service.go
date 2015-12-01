@@ -247,6 +247,12 @@ func (this *service) stop() {
 		topics.Unregister(this.cid())
 	}
 
+	//remove from connection pool
+	RemoveFromConPool(this.sess.ID())
+
+	//remove from online status
+	this.persist.RemoveOnlineUser(this.sess.ID())
+
 	// Remove the session from session store if it's suppose to be clean session
 	if this.sess.Cmsg.CleanSession() && this.sessMgr != nil {
 		this.sessMgr.Del(this.cid())

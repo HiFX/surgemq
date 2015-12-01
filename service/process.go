@@ -65,7 +65,7 @@ func FromPooledConn(client_id string) (*service, error) {
 func OnlineUsers() ([]string) {
 	users := make([]string, len(conPool))
 	count := 0
-	for user, _ := range conPool{
+	for user, _ := range conPool {
 		users[count] = user
 		count++
 	}
@@ -351,12 +351,20 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 //todo : this preprocessor shuld be non blocking
 func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	payLoad := msg.Payload()
-	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC().Unix(), What : string(payLoad)}
+	profile, err := this.persist.UserBasicProfile(this.sess.ID())
+	if err != nil {
+		//todo : deal error
+	}
+	persistPack := &models.Message{Id: this.sess.ID(), When : time.Now().UTC().Unix(), What : string(payLoad)}
 	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
 	if persistError != nil {
-		//		todo : handle error
+		//todo : handle error
 		fmt.Println("Persist error in processor :", persistError)
 	}
+	persistPack.Type = models.MessageTypeUserMessage
+	persistPack.Who = profile.Name()
+	persistPack.Pic = profile.ProfileImage
+	msg.SetPayload(persistPack.Serialize())
 	return this.processPublish(msg)
 }
 
