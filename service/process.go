@@ -45,7 +45,6 @@ func AddConnToPool(client_id string, srv *service) {
 
 //remove from con pool
 func RemoveFromConPool(client_id string) {
-	fmt.Println("Remove from pool for ", client_id, " has been invoked")
 	if _, found := conPool[client_id]; found {
 		conPoolLock.Lock()
 		defer conPoolLock.Unlock()
@@ -352,7 +351,7 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 //todo : this preprocessor shuld be non blocking
 func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	payLoad := msg.Payload()
-	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC(), What : string(payLoad)}
+	persistPack := &models.Message{Who: this.sess.ID(), When : time.Now().UTC().Unix(), What : string(payLoad)}
 	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
 	if persistError != nil {
 		//		todo : handle error
@@ -492,7 +491,6 @@ func (this *service) onPublish(msg *message.PublishMessage) error {
 				glog.Errorf("Invalid onPublish Function")
 				return fmt.Errorf("Invalid onPublish Function")
 			} else {
-				fmt.Println("writing on a client;")
 				(*fn)(msg)
 			}
 		}
