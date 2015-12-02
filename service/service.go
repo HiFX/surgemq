@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 	"sync/atomic"
 
 	"github.com/surge/glog"
@@ -25,6 +26,7 @@ import (
 	"github.com/HiFX/surgemq/sessions"
 	"github.com/HiFX/surgemq/topics"
 	"github.com/HiFX/surgemq/persistence"
+	"github.com/HiFX/surgemq/models"
 )
 
 type (
@@ -253,6 +255,8 @@ func (this *service) stop() {
 	//remove from online status
 	this.persist.RemoveOnlineUser(this.sess.ID())
 
+	//notify clients about disconnect
+	this.disconnectNotifier()
 	// Remove the session from session store if it's suppose to be clean session
 	if this.sess.Cmsg.CleanSession() && this.sessMgr != nil {
 		this.sessMgr.Del(this.cid())
@@ -266,7 +270,7 @@ func (this *service) stop() {
 func (this *service) publish(msg *message.PublishMessage, onComplete OnCompleteFunc) error {
 	//glog.Debugf("service/publish: Publishing %s", msg)
 	fmt.Println("A publish message on board..")
-	fmt.Println(this.cid() , ", : firing a publish message : ", msg )
+	fmt.Println(this.cid(), ", : firing a publish message : ", msg)
 	_, err := this.writeMessage(msg)
 	if err != nil {
 		return fmt.Errorf("(%s) Error sending %s message: %v", this.cid(), msg.Name(), err)
@@ -455,4 +459,32 @@ func (this *service) isDone() bool {
 
 func (this *service) cid() string {
 	return fmt.Sprintf("%d/%s", this.id, this.sess.ID())
+}
+
+func (this *service) disconnectNotifier() {
+	discnctMsg := models.Message{Type:    models.MessageTypeSysNotification, What : "gone off-line", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	msg := message.NewPublishMessage()
+	msg.SetPayload(discnctMsg.Serialize())
+	msg.SetQoS(0)
+	this.sendSysNotifications(msg)
+}
+
+func (this *service) connectNotifier() {
+	discnctMsg := models.Message{Type:    models.MessageTypeSysNotification, What : "is online now", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	msg := message.NewPublishMessage()
+	msg.SetPayload(discnctMsg.Serialize())
+	msg.SetQoS(0)
+	this.sendSysNotifications(msg)
+}
+
+func (this *service) sendSysNotifications(msg *message.PublishMessage) {
+	topics, _, err := this.sess.Topics()
+	if err != nil {
+		return
+	}
+	numTopics := len(topics)
+	for i := 0; i < numTopics; i++ {
+		msg.SetTopic([]byte(topics[i]))
+		this.processPublish(msg)
+	}
 }

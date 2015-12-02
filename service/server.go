@@ -373,7 +373,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	}
 	AddConnToPool(svc.sess.ID(), svc)
 	svc.persist.AddUserOnline(svc.sess.ID())
-
+	svc.connectNotifier()
 	//this.mu.Lock()
 	//this.svcs = append(this.svcs, svc)
 	//this.mu.Unlock()
