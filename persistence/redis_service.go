@@ -20,6 +20,7 @@ import (
 const (
 	PARTICIPANTS_SEPERATOR = "|"
 	KALAPILA_MAX_QOS       = 2
+	CHAT_TOKEN_DURATION_SEC	= 60 * 60
 	USER_GROUP_PREFIX      = "ug"
 	BUDDY_LIST_PREFIX      = "bl"
 	NICK_SHADOW_PREFIX     = "ns"
@@ -28,15 +29,15 @@ const (
 	CHAT_HISTORY_PREFIX    = "ch"
 	USER_PROFILE_PREFIX    = "up"
 	ONLINE_USERS_KEY       = "online_users"
-	CHAT_TIME_LINE_PREFIX = "tl"
+	CHAT_TIME_LINE_PREFIX  = "tl"
 )
 
 var (
-	profileId       string            = "usr_id"
-	profileEmail        string         = "email"
-	profileFirstName        string     = "usr_first_name"
-	profileLastName     string      = "usr_last_name"
-	profileProfileImage     string  = "usr_image"
+	profileId       string         = "usr_id"
+	profileEmail        string     = "email"
+	profileFirstName        string = "usr_first_name"
+	profileLastName     string     = "usr_last_name"
+	profileProfileImage     string = "usr_image"
 )
 
 //todo : may have to implement a close function for winding up the
@@ -109,8 +110,8 @@ func (this *Redis) RemoveOnlineUser(userId string) (error) {
 }
 
 //Set for setting values in db; returns error
-func (this *Redis) SetChatToken(userId string, token models.Token) error {
-	return this.setChatToken(userId, token)
+func (this *Redis) SetChatToken(chatToken string, token models.Token) error {
+	return this.setChatToken(chatToken, token)
 }
 
 //Get for getting values from db; returns value and error
@@ -133,14 +134,16 @@ func (this *Redis) Flush(groupName string, msg *models.Message) (error) {
 	}
 	this.dumpInFlushSink(shadow, msg.Serialize())
 	//todo : error not considered here
-	this.addChatTimeLine(msg.Who, nickName)
+	this.addChatTimeLine(msg.Id, nickName)
 	return nil
 }
 
 //Scan implements scanning of the chat history
 func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int) ([]models.Message, error) {
 	_, nickName, err := this.ClientGroupBuddies(clientGroupLabel)
+	fmt.Println("Nick Name : ", nickName)
 	if err != nil {
+		fmt.Println("client group label obtained successfully")
 		//todo : deal error
 	}
 	return this.scan(userId, nickName, offset, count)
@@ -160,7 +163,7 @@ func (this *Redis) ChatList(userId string, from, to int64) ([]models.ChatList, e
 	}
 	finalResult = make([]models.ChatList, len(nickSorted))
 	memberPool := make(map[string]map[string]string)
-	for j, nickName := range nickSorted{
+	for j, nickName := range nickSorted {
 		//get information about this chat
 		activeMembers, err := this.getBuddyList(nickName)
 		if err != nil {
@@ -177,7 +180,7 @@ func (this *Redis) ChatList(userId string, from, to int64) ([]models.ChatList, e
 				}
 				memberPool[memberId] = info
 			}
-			chatMembers[i] = models.Member{Id : memberId, Name : fmt.Sprintf("%s %s ", info[profileFirstName], info[profileLastName] )}
+			chatMembers[i] = models.Member{Id : memberId, Name : fmt.Sprintf("%s %s ", info[profileFirstName], info[profileLastName])}
 		}
 		finalResult[j] = models.ChatList{Key : nickName, Info : models.ChatInfo{Members : chatMembers}}
 	}
@@ -188,7 +191,7 @@ func (this *Redis) ClientSubscriptions(userId string) (map[string]int, error) {
 	return this.getUserGroupNames(userId)
 }
 
-func (this *Redis) Close(){
+func (this *Redis) Close() {
 	this.initialCleanUp()
 	close(this.flushTunnel)
 }
@@ -197,11 +200,12 @@ func (this *Redis) Close(){
 //Does not considers members of group with more than two participants
 //including the user;
 //todo : may have to be supported with paging
-func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
+func (this *Redis) BuddiesOnline(user_id string) ([]models.UserProfileBasics, error) {
+	profileList := make([]models.UserProfileBasics, 0)
 	userClientGroupus, err := this.getUserGroupNames(user_id)
 	if err != nil {
 		fmt.Println("User group names getting error; ", err)
-		return []string{}, err
+		return profileList, err
 	}
 	//collect one to one communication with the calling user
 	for nick, _ := range userClientGroupus {
@@ -214,8 +218,7 @@ func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
 	for nick, _ := range userClientGroupus {
 		activeBuddies, err := this.getBuddyList(nick)
 		if err != nil {
-			fmt.Println("Buddy List reading error : ", err)
-			return []string{}, err
+			return profileList, err
 		}
 		for _, buds := range activeBuddies {
 			actives[buds] = false
@@ -228,8 +231,7 @@ func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
 	//get status of the rest
 	onlineUsers, err := this.onlineUsersList()
 	if err != nil {
-		fmt.Println("This is the error : ", err)
-		return []string{}, err
+		return profileList, err
 	}
 
 	for _, onlineUser := range onlineUsers {
@@ -237,26 +239,96 @@ func (this *Redis) BuddiesOnline(user_id string) ([]string, error) {
 		actives[onlineUser] = yes
 	}
 	//remove offline buddies
-	onlineBuddies := make([]string, 0)
 	for user, online := range actives {
 		if online {
-			onlineBuddies = append(onlineBuddies, user)
+			userProfile, err := this.UserBasicProfile(user)
+			if err != nil {
+				return profileList, err
+			}
+			profileList = append(profileList, userProfile)
 		}
 	}
-	return onlineBuddies, nil
+	return profileList, nil
 }
 
 func (this *Redis) UserBasicProfile(user_id string) (models.UserProfileBasics, error) {
 	profile, err := this.getUserProfile(user_id)
-	if err != nil {
-		//todo : deal error
-	}
 	basicProfile := models.UserProfileBasics{}
+	if err != nil {
+		return basicProfile, err
+	}
 	basicProfile.Id = user_id
 	basicProfile.FirstName = profile[profileFirstName]
 	basicProfile.LastName = profile[profileLastName]
 	basicProfile.ProfileImage = profile[profileProfileImage]
 	return basicProfile, nil
+}
+
+func (this *Redis) UsersBasicProfile(client_topic string) ([]models.UserProfileBasics, error){
+	var profiles []models.UserProfileBasics
+	_, nickName, err := this.ClientGroupBuddies(client_topic)
+	if err != nil {
+		return profiles, err
+	}
+	activeBuddies, err := this.getBuddyList(nickName)
+	if err != nil {
+		return profiles, err
+	}
+	profiles = make([]models.UserProfileBasics, len(activeBuddies))
+	for i, user := range activeBuddies {
+		uP, err := this.UserBasicProfile(user)
+		if err != nil {
+			return profiles, err
+		}
+		profiles[i] = uP
+	}
+	return profiles, nil
+}
+
+func (this *Redis) UserProfile(user_id string) (models.UserProfileCore, error) {
+	profile, err := this.getUserProfile(user_id)
+	completeProfile := models.UserProfileCore{}
+	if err != nil {
+		return completeProfile, err
+	}
+	completeProfile.Id = user_id
+	completeProfile.FirstName = profile[profileFirstName]
+	completeProfile.LastName = profile[profileLastName]
+	completeProfile.ProfileImage = profile[profileProfileImage]
+	completeProfile.Email = profile[profileEmail]
+	return completeProfile, nil
+}
+
+func (this *Redis) UserOnlineStatus(userId string) (bool, error) {
+	return this.checkUserOnline(userId)
+}
+
+//IsTopicValid verifies whether a topic is valid or not;
+//For a client topic to be valid, topic should contain atleast two
+//values seperated by '|' (pipe); All individual values should be
+//id of the users participating in the chat and these ids should
+//appear in their increasing order when arranged chronologically;
+//a|b|c is a valid topic if a, b and c are user ids. But a|c|b is not;
+func (this *Redis) IsTopicValid(topic string) (bool, error) {
+	subscribes := strings.Split(topic, "|")
+	if len(subscribes) < 2 {
+		return false, nil
+	}
+	participants := make(map[string]bool)
+	for _, user := range subscribes {
+		exist, err := this.isUserExisting(user)
+		if err != nil {
+			return false, err
+		}
+		if !exist {
+			return false, nil
+		}
+		participants[user] = true
+	}
+	if len(participants) != len(subscribes) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, userId string) error {
@@ -272,7 +344,7 @@ func (this *Redis) unsubscribe(buddies []string, nickName, clientGroupName, user
 	}
 	err = this.removeFromBuddyList(nickName, userId)
 	if err != nil {
-		return errors.New("unsubscribe failed; failed to remve from buddy list")
+		return errors.New("unsubscribe failed; failed to remove from buddy list")
 	}
 	newNick := fmt.Sprintf("%s_%d", nickName, time.Now().UTC().Unix())
 
@@ -373,8 +445,9 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 }
 
 func (this *Redis) scan(userId, nickName string, offSet, count int) ([]models.Message, error) {
-	shadow, err := this.client.HGet(userId, nickName).Result()
-	if err != nil {
+	label := fmt.Sprintf("%s_%s", USER_HISTORY_PREFIX, userId)
+	shadow, err := this.client.HGet(label, nickName).Result()
+	if err != nil && err != redis.Nil {
 		//todo : deal error
 		return []models.Message{}, err
 	}
@@ -384,10 +457,22 @@ func (this *Redis) scan(userId, nickName string, offSet, count int) ([]models.Me
 		return []models.Message{}, err
 		//return
 	}
+	namePool := make(map[string]string)
 	result := make([]models.Message, len(list))
 	for i, msg := range list {
 		msgHolder := models.Message{}
 		json.Unmarshal([]byte(msg), &msgHolder)
+		//patch user names
+		if name, found := namePool[msgHolder.Id]; found {
+			msgHolder.Who = name
+		}else {
+			profile, err := this.getUserProfile(msgHolder.Id)
+			if err != nil {
+				//todo : deal error
+			}
+			msgHolder.Who = profile[profileFirstName]
+			namePool[msgHolder.Id] = msgHolder.Who
+		}
 		result[i] = msgHolder
 	}
 	return result, nil
@@ -464,7 +549,6 @@ func (this *Redis) getUserGroupNames(userId string) (map[string]int , error) {
 		return result, err
 	}
 	for _, value := range values {
-		fmt.Println(" value : ", value)
 		value = strings.TrimSpace(value)
 		if len(value) > 0 {
 			splitAt := strings.Index(value, PARTICIPANTS_SEPERATOR)
@@ -582,20 +666,28 @@ func (this *Redis) renameNickOfNickShadow(oldNick, newNick string) (error) {
 	return err
 }
 
-func (this *Redis) setChatToken(userId string, token models.Token) (error) {
-	//todo : save token for user information
-	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
-	_, err := this.client.Set(label, token.Sub, time.Duration(0)).Result()
+func (this *Redis) setChatToken(chatToken string, token models.Token) (error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, token.Sub)
+	_, err := this.client.Set(label, chatToken, time.Duration(CHAT_TOKEN_DURATION_SEC)).Result()
 	if err != nil && err != redis.Nil {
 		return err
 	}
 	return this.setUserProfile(token)
 }
 
-func (this *Redis) setUserProfile(token models.Token) (error){
-	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX,token.Sub)
+func (this *Redis) getChatToken(userId string) (string, error) {
+	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
+	chatToken, err := this.client.Get(label).Result()
+	if err == redis.Nil {
+		return chatToken, nil
+	}
+	return chatToken, err
+}
+
+func (this *Redis) setUserProfile(token models.Token) (error) {
+	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX, token.Sub)
 	_, err := this.client.HMSet(label, profileId, token.Sub, profileEmail, token.Email, profileFirstName, token.FirstName,
-	profileLastName, token.LastName, profileProfileImage, token.ProfileImage).Result()
+		profileLastName, token.LastName, profileProfileImage, token.ProfileImage).Result()
 	if err == redis.Nil {
 		return nil
 	}
@@ -603,17 +695,21 @@ func (this *Redis) setUserProfile(token models.Token) (error){
 }
 
 func (this *Redis) getUserProfile(userId string) (map[string]string, error) {
-	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX,userId)
-	result, err  := this.client.HGetAllMap(label).Result()
+	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX, userId)
+	result, err := this.client.HGetAllMap(label).Result()
 	if err == redis.Nil {
-		return result, nil
+		return result, errors.New("Invalid user")
 	}
 	return result, err
 }
 
-func (this *Redis) getChatToken(userId string) (string, error) {
-	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, userId)
-	return this.client.Get(label).Result()
+func (this *Redis) isUserExisting(userId string) (bool, error) {
+	label := fmt.Sprintf("%s_%s", USER_PROFILE_PREFIX, userId)
+	result, err := this.client.HExists(label, "usr_id").Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	return result, err
 }
 
 func (this *Redis) setUserChatHistory(userId, nickName, shadow string) (error) {
@@ -670,7 +766,15 @@ func (this *Redis) onlineUsersList() ([]string, error) {
 	return list, err
 }
 
-func (this *Redis) initialCleanUp()(error) {
+func (this *Redis) checkUserOnline(userID string) (bool, error) {
+	status, err := this.client.SIsMember(ONLINE_USERS_KEY, userID).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	return status , err
+}
+
+func (this *Redis) initialCleanUp() (error) {
 	return this.cleanOnlineStatuses()
 }
 
@@ -693,7 +797,7 @@ func (this *Redis) addChatTimeLine(userId, nickName string) (error) {
 }
 
 //todo : make this operation a transaction
-func (this *Redis)renameNickOfChatTimeLine(userId, oldNick, newNick string) (error) {
+func (this *Redis) renameNickOfChatTimeLine(userId, oldNick, newNick string) (error) {
 	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
 	zScore, err := this.client.ZScore(label, oldNick).Result()
 	if err != nil && err != redis.Nil {

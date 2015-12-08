@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"github.com/HiFX/surgemq/persistence"
 	"strconv"
-	"fmt"
 	"github.com/HiFX/surgemq/models"
 )
 
@@ -22,18 +21,18 @@ type History struct {
 
 //History returns history of a chat among a group
 func (this *History) History(c web.C, w http.ResponseWriter, req *http.Request) {
-	fmt.Println("History invoked")
-	//authentication needed
 	var (
-		user_id	string = "user_id"
-		offset	string = "offset"
-		count	string = "count"
-		group	string = "group"
+		offset    string = "offset"
+		count    string  = "count"
+		group    string  = "topic"
 	)
-	userId := req.FormValue(user_id)
+
+	dToken := c.Env["token"]
+	oToken, _ := dToken.(models.Token)
+	userId := oToken.Sub
 	offsetStr := req.FormValue(offset)
 	countStr := req.FormValue(count)
-	groupStr	:= req.FormValue(group)
+	groupStr := req.FormValue(group)
 
 	offsetInt, convErr := strconv.Atoi(offsetStr)
 	if convErr != nil {
@@ -54,10 +53,10 @@ func (this *History) History(c web.C, w http.ResponseWriter, req *http.Request) 
 }
 
 //Chats returns all unique chats of the user
-func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request){
+func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request) {
 	var (
-		offset	string = "offset"
-		count	string = "count"
+		offset    string = "offset"
+		count    string  = "count"
 	)
 	offsetStr := req.FormValue(offset)
 	countStr := req.FormValue(count)

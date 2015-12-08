@@ -22,7 +22,7 @@ type Authenticator struct {
 	KeyFile     []byte
 	ClientId    string
 	Persist        *persistence.Redis
-	ModeProd	bool
+	ModeProd    bool
 }
 
 func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
@@ -31,6 +31,12 @@ func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
 		return this.KeyFile, nil
 	}
 	fn := func(w http.ResponseWriter, req *http.Request) {
+		//todo : this is a diry job done to override nodeJs's options requesting;
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "X-Requested-With, Authorization")
+		if req.Method == "OPTIONS" {
+			return
+		}
 		echoErr := func(customError authError) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(customError.HttpStatus)
@@ -41,6 +47,7 @@ func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
 		token, tokenError := jwt.ParseFromRequest(req, KeyReader)
 		if tokenError != nil {
 			//token not present in request
+			fmt.Println("No Token Present Error : ", tokenError)
 			echoErr(tokenMissingError)
 			return
 		}else {
@@ -83,9 +90,9 @@ func (this Authenticator) ChatToken(c web.C, w http.ResponseWriter, req *http.Re
 }
 
 type authError struct {
-	Code          int		`json:"code"`
-	HttpStatus    int   	`json:"-"`
-	Message       string	`json:"message"`
+	Code          int        `json:"code"`
+	HttpStatus    int    `json:"-"`
+	Message       string    `json:"message"`
 }
 
 /**
@@ -99,7 +106,7 @@ func inspectTokenPermissions(authToken *jwt.Token) (bool, models.Token) {
 	name, nameOk := authToken.Claims["name"]
 	firstName, firstNameOk := authToken.Claims["firstName"]
 	lastName, lastNameOk := authToken.Claims["lastName"]
-	//	profileImage, profileImageOk := authToken.Claims["profileImage"]
+	profileImage, profileImageOk := authToken.Claims["profileImage"]
 	//	emailVerified, emailVerifiedOk := authToken.Claims["emailVerified"]
 	//	email, emailOk := authToken.Claims["email"]
 
@@ -111,9 +118,9 @@ func inspectTokenPermissions(authToken *jwt.Token) (bool, models.Token) {
 	token.Name = name.(string)
 	token.FirstName = firstName.(string)
 	token.LastName = lastName.(string)
-	//	if profileImageOk {
-	//		token.ProfileImage = profileImage.(string)
-	//	}
+	if profileImageOk {
+		token.ProfileImage = profileImage.(string)
+	}
 	//	token.EmailVerified = emailVerified.(string)
 	//	token.Email = email.(string)
 

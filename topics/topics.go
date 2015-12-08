@@ -88,7 +88,6 @@ type Manager struct {
 }
 
 func NewManager(providerName string) (*Manager, error) {
-	fmt.Println("returning topic provider : under name ", providerName)
 	p, ok := providers[providerName]
 	if !ok {
 		return nil, fmt.Errorf("session: unknown provider %q", providerName)

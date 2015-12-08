@@ -226,12 +226,12 @@ func (this *Server) authProvider() func(string, string)(error) {
 	return func(userId, chatToken string) (error){
 		userId = strings.TrimSpace(userId)
 		chatToken = strings.TrimSpace(chatToken)
-		user_id, err := this.redis.GetChatToken(chatToken)
+		cToken, err := this.redis.GetChatToken(userId)
 		if err != nil {
 			//todo : deal error for determining the type of error
 			return err
 		}
-		if user_id != userId {
+		if chatToken != cToken {
 			return errors.New("auth fail; invalid chat token")
 		}
 		return nil
@@ -358,6 +358,12 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 			return nil, errors.New("failed to inject topic to the user")
 		}
 	}
+	//set user profile
+	profile, err := svc.persist.UserProfile(svc.sess.ID())
+	if err != nil {
+		//todo : deal error : may be invalid user
+	}
+	svc.profile = &profile
 	resp.SetReturnCode(message.ConnectionAccepted)
 
 	if err = writeMessage(c, resp); err != nil {
@@ -371,6 +377,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 		svc.stop()
 		return nil, err
 	}
+	fmt.Println("New user connected : " , svc.sess.ID())
 	AddConnToPool(svc.sess.ID(), svc)
 	svc.persist.AddUserOnline(svc.sess.ID())
 	svc.connectNotifier()

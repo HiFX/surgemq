@@ -316,6 +316,5 @@ func (this *service) writeMessage(msg message.Message) (int, error) {
 	}
 
 	this.outStat.increment(int64(m))
-
 	return m, nil
 }

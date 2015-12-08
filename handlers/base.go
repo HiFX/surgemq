@@ -9,9 +9,10 @@ type Base struct {
 
 }
 
-func (this *Base) Respond(w http.ResponseWriter, httpStatus int, data interface {}){
+func (this *Base) Respond(w http.ResponseWriter, httpStatus int, data interface{}) {
 	jRes, _ := json.Marshal(data)
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "http://fe.classifieds.local")
 	w.WriteHeader(httpStatus)
 	_, err := w.Write(jRes)
 	if err != nil {

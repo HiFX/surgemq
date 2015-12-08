@@ -351,19 +351,22 @@ func (this *service) processPublish(msg *message.PublishMessage) error {
 //todo : this preprocessor shuld be non blocking
 func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	payLoad := msg.Payload()
-	profile, err := this.persist.UserBasicProfile(this.sess.ID())
-	if err != nil {
-		//todo : deal error
-	}
+	clientGroupTopic := string(msg.Topic())
 	persistPack := &models.Message{Id: this.sess.ID(), When : time.Now().UTC().Unix(), What : string(payLoad)}
-	persistError := this.persist.Flush(string(msg.Topic()), persistPack)
+	persistError := this.persist.Flush(clientGroupTopic, persistPack)
 	if persistError != nil {
 		//todo : handle error
 		fmt.Println("Persist error in processor :", persistError)
 	}
 	persistPack.Type = models.MessageTypeUserMessage
-	persistPack.Who = profile.Name()
-	persistPack.Pic = profile.ProfileImage
+	persistPack.Who = this.profile.Name()
+	persistPack.Pic = this.profile.ProfileImage
+	participantsProfile, err := this.persist.UsersBasicProfile(clientGroupTopic)
+	if err != nil {
+		//todo : deal error
+	}
+	persistPack.Buddies = &participantsProfile
+	persistPack.On = clientGroupTopic
 	msg.SetPayload(persistPack.Serialize())
 	return this.processPublish(msg)
 }
@@ -380,10 +383,17 @@ func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) err
 	}
 
 	strTopic := string(topic)
+	valid, err := this.persist.IsTopicValid(strTopic)
+	if err != nil {
+		//todo : deal error
+	}
+	if !valid {
+		return errors.New("invalid topic")
+	}
 	subscribers := strings.Split(strTopic, "|")
 	err := this.persist.Subscribe(strTopic, this.sess.ID(), qos, this.authorizer)
 	if err != nil {
-		//todo : this can be an authorization error
+		//todo : this can be an authorization error : implement 
 		fmt.Println("persistence subscription error : ", err)
 	}
 	err = this.processSubscribe(msg)

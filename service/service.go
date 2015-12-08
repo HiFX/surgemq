@@ -128,6 +128,8 @@ type service struct {
 	persist *persistence.Redis
 	//authorization
 	authorizer func(...string) bool
+	//user profile
+	profile *models.UserProfileCore
 }
 
 func (this *service) start() error {
@@ -269,8 +271,8 @@ func (this *service) stop() {
 
 func (this *service) publish(msg *message.PublishMessage, onComplete OnCompleteFunc) error {
 	//glog.Debugf("service/publish: Publishing %s", msg)
-	fmt.Println("A publish message on board..")
-	fmt.Println(this.cid(), ", : firing a publish message : ", msg)
+//	fmt.Println("OnPublish : for : ", this.cid())
+//	fmt.Println("OnPublihs : Message Name : ", msg.Name())
 	_, err := this.writeMessage(msg)
 	if err != nil {
 		return fmt.Errorf("(%s) Error sending %s message: %v", this.cid(), msg.Name(), err)

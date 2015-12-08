@@ -17,7 +17,11 @@ type Message struct{
 	//When : time in utc unix
 	When    int64    `json:"when,omitempty"`
 	//What : the actual message
-	What    string    `json:what,omitempty"`
+	What    string    `json:"what,omitempty"`
+	//On : topic on which the message is made
+	On string	`json:"topic,omitempty"`
+	//Buddies : who are the pariticipants
+	Buddies *[]UserProfileBasics		`json:"buddies,omitempty"`
 }
 
 func (this *Message) Serialize() ([]byte) {

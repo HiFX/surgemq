@@ -68,6 +68,11 @@ func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
 	//register middleware
 	mux.Use(gmiddleware.EnvInit)
 	mux.Use(auth.Authenticate)
+	//todo : this is a hack
+	mux.Options("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "X-Requested-With, Authorization")
+		}))
 	mux.Get("/chat/history", history.History)
 	mux.Get("/chat/rooms", history.ChatRooms)
 	mux.Get("/chat/token", auth.ChatToken)
