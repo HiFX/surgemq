@@ -187,6 +187,7 @@ func (this *service) start() error {
 	// Wait for all the goroutines to start before returning
 	this.wgStarted.Wait()
 
+	this.connectNotifier()
 	return nil
 }
 
@@ -271,8 +272,8 @@ func (this *service) stop() {
 
 func (this *service) publish(msg *message.PublishMessage, onComplete OnCompleteFunc) error {
 	//glog.Debugf("service/publish: Publishing %s", msg)
-//	fmt.Println("OnPublish : for : ", this.cid())
-//	fmt.Println("OnPublihs : Message Name : ", msg.Name())
+	//	fmt.Println("OnPublish : for : ", this.cid())
+	//	fmt.Println("OnPublihs : Message Name : ", msg.Name())
 	_, err := this.writeMessage(msg)
 	if err != nil {
 		return fmt.Errorf("(%s) Error sending %s message: %v", this.cid(), msg.Name(), err)
@@ -464,21 +465,35 @@ func (this *service) cid() string {
 }
 
 func (this *service) disconnectNotifier() {
-	discnctMsg := models.Message{Type:    models.MessageTypeSysNotification, What : "gone off-line", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	discnctMsg := models.Message{Type:    models.MsgTypSysNotifyUserDisconnect, What : "gone off-line", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	profileBasics := make([]models.UserProfileBasics, 1)
+	profileBasics[0] = this.profile.UserProfileBasics
+	discnctMsg.Buddies = &profileBasics
 	msg := message.NewPublishMessage()
 	msg.SetPayload(discnctMsg.Serialize())
 	msg.SetQoS(0)
 	this.sendSysNotifications(msg)
+	discnctMsg.Type = models.MsgTypCtrlNotifyUserDisconnect
+	msg.SetPayload(discnctMsg.Serialize())
+	msg.SetQoS(0)
+	this.sendIndividualNotifications(msg)
 }
 
 func (this *service) connectNotifier() {
-	discnctMsg := models.Message{Type:    models.MessageTypeSysNotification, What : "is online now", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	cnctMsg := models.Message{Type:    models.MsgTypSysNotifyUserConnect, What : "is online now", Id : this.sess.ID(), When : time.Now().UTC().Unix()}
+	profileBasics := make([]models.UserProfileBasics, 1)
+	profileBasics[0] = this.profile.UserProfileBasics
+	cnctMsg.Buddies = &profileBasics
 	msg := message.NewPublishMessage()
-	msg.SetPayload(discnctMsg.Serialize())
+	msg.SetPayload(cnctMsg.Serialize())
 	msg.SetQoS(0)
 	this.sendSysNotifications(msg)
+	cnctMsg.Type = models.MsgTypCtrlNotifyUserConnect
+	msg.SetPayload(cnctMsg.Serialize())
+	this.sendIndividualNotifications(msg)
 }
 
+//sendSysNotifications : sends system notifications to subscribed topics;
 func (this *service) sendSysNotifications(msg *message.PublishMessage) {
 	topics, _, err := this.sess.Topics()
 	if err != nil {
@@ -489,4 +504,23 @@ func (this *service) sendSysNotifications(msg *message.PublishMessage) {
 		msg.SetTopic([]byte(topics[i]))
 		this.processPublish(msg)
 	}
+}
+
+//sendIndividualNotifications : sends system notification to connected buddies
+//on their private channel(topic) individually;
+func (this *service) sendIndividualNotifications(msg *message.PublishMessage) {
+	onlineBuddies, err := this.persist.BuddiesOnline(this.sess.ID())
+	if err != nil {
+		//todo : redis error ; log error and return
+		return
+	}
+	go func() {
+		for _, buddy := range onlineBuddies {
+			con, err := FromPooledConn(buddy.Id)
+			if err == nil {
+				msg.SetTopic([]byte(buddy.Id))
+				con.processPublish(msg)
+			}
+		}
+	}()
 }

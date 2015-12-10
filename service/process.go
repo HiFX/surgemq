@@ -358,7 +358,7 @@ func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 		//todo : handle error
 		fmt.Println("Persist error in processor :", persistError)
 	}
-	persistPack.Type = models.MessageTypeUserMessage
+	persistPack.Type = models.MsgTypUserMessage
 	persistPack.Who = this.profile.Name()
 	persistPack.Pic = this.profile.ProfileImage
 	participantsProfile, err := this.persist.UsersBasicProfile(clientGroupTopic)
@@ -391,9 +391,9 @@ func (this *service) subscriptionPreProcessor(msg *message.SubscribeMessage) err
 		return errors.New("invalid topic")
 	}
 	subscribers := strings.Split(strTopic, "|")
-	err := this.persist.Subscribe(strTopic, this.sess.ID(), qos, this.authorizer)
+	err = this.persist.Subscribe(strTopic, this.sess.ID(), qos, this.authorizer)
 	if err != nil {
-		//todo : this can be an authorization error : implement 
+		//todo : this can be an authorization error : implement
 		fmt.Println("persistence subscription error : ", err)
 	}
 	err = this.processSubscribe(msg)

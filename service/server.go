@@ -380,7 +380,6 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 	fmt.Println("New user connected : " , svc.sess.ID())
 	AddConnToPool(svc.sess.ID(), svc)
 	svc.persist.AddUserOnline(svc.sess.ID())
-	svc.connectNotifier()
 	//this.mu.Lock()
 	//this.svcs = append(this.svcs, svc)
 	//this.mu.Unlock()
