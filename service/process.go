@@ -356,6 +356,9 @@ func (this *service) publishPreProcessor(msg *message.PublishMessage) error {
 	persistError := this.persist.Flush(clientGroupTopic, persistPack)
 	if persistError != nil {
 		//todo : handle error
+		if persistError == models.InvalidTopicErrror {
+			return persistError
+		}
 		fmt.Println("Persist error in processor :", persistError)
 	}
 	persistPack.Type = models.MsgTypUserMessage

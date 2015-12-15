@@ -21,13 +21,31 @@ type ServiceWrapper struct {
 
 //NewService returns a server
 //Params :
-func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
-		keyFilePath string, authorizer func(...string)bool) (*ServiceWrapper, error) {
+func NewService(webSocketPort, redisHost, redisPass string, redisDB int, keyFilePath string,
+			authorizer func(...string)(bool)) (*ServiceWrapper, error) {
 	//todo : validate webSocket port to follow the format of :1234
 
+	//get authenticator
 	persist, err := persistence.NewRedis(redisHost, redisPass, redisDB)
 	if err != nil {
 		return nil, err
+	}
+	keyFile, readError := readPublicKey(keyFilePath)
+	if readError != nil {
+		return nil, readError
+	}
+	var (
+		historyHandler handlers.History
+		authHandlder    handlers.Authenticator
+		userHandler handlers.OnlineUsers
+	)
+	//set up handlers
+	historyHandler.Redis = persist
+	authHandlder = handlers.Authenticator{KeyFile : keyFile, ClientId : "some_valid_client", Persist : persist, ModeProd : false}
+	userHandler = handlers.OnlineUsers{Persist : persist}
+	authenticator, err := authHandlder.NewTokenAuthenticator()
+	if err != nil {
+		//todo : deal error
 	}
 	svr := &Server{
 		KeepAlive:        DefaultKeepAlive,
@@ -37,13 +55,10 @@ func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
 		SessionsProvider: DefaultSessionsProvider,
 		TopicsProvider:   DefaultTopicsProvider,
 		redis:    persist,
-		authorization: authorizer,
+		authorization : authorizer,
+		authenticate : authenticator,
 	}
 
-	keyFile, readError := readPublicKey(keyFilePath)
-	if readError != nil {
-		return nil, readError
-	}
 	wrapper := &ServiceWrapper{server : svr}
 	wrapper.mux = http.NewServeMux()
 	wrapper.webSocketPort = webSocketPort
@@ -56,27 +71,18 @@ func NewService(webSocketPort, redisHost, redisPass string, redisDB int,
 	}
 
 	mux := web.New()
-	var (
-		history handlers.History
-		auth    handlers.Authenticator
-		users handlers.OnlineUsers
-	)
-	//set up handlers
-	history.Redis = persist
-	auth = handlers.Authenticator{KeyFile : keyFile, ClientId : "some_valid_client", Persist : persist, ModeProd : false}
-	users = handlers.OnlineUsers{Persist : persist}
 	//register middleware
 	mux.Use(gmiddleware.EnvInit)
-	mux.Use(auth.Authenticate)
+	mux.Use(authHandlder.Authenticate)
 	//todo : this is a hack
 	mux.Options("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Headers", "X-Requested-With, Authorization")
 		}))
-	mux.Get("/chat/history", history.History)
-	mux.Get("/chat/rooms", history.ChatRooms)
-	mux.Get("/chat/token", auth.ChatToken)
-	mux.Get("/chat/online/buddies", users.OnlineBuddies)
+	mux.Get("/chat/history", historyHandler.History)
+	mux.Get("/chat/rooms", historyHandler.ChatRooms)
+	mux.Get("/chat/timeLine", historyHandler.ChatTimeLine)
+	mux.Get("/chat/online/buddies", userHandler.OnlineBuddies)
 	wrapper.mux.Handle("/mqtt", websocket.Handler(soketProxy))
 	wrapper.mux.Handle("/", mux)
 	return wrapper, nil

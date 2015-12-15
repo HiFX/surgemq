@@ -83,3 +83,33 @@ func (this *History) ChatRooms(c web.C, w http.ResponseWriter, req *http.Request
 	this.Respond(w, 200, list)
 }
 
+//Read user time line
+func (this *History) ChatTimeLine(c web.C, w http.ResponseWriter, req *http.Request) {
+	dToken, _ := c.Env["token"]
+	oToken, _ := dToken.(models.Token)
+
+	var (
+		offset    string = "offset"
+		count    string  = "count"
+	)
+	offsetStr := req.FormValue(offset)
+	countStr := req.FormValue(count)
+
+	offsetInt, convErr := strconv.Atoi(offsetStr)
+	if convErr != nil {
+		//todo : deal error
+		offsetInt = 0
+	}
+
+	countInt, convErr := strconv.Atoi(countStr)
+	if convErr != nil {
+		//todo : deal error
+		countInt = 25
+	}
+	timeLine, err := this.Redis.ChatTimeLine(oToken.Sub, offsetInt, countInt)
+	if err != nil {
+		//todo : deal error
+		return
+	}
+	this.Respond(w, 200, timeLine)
+}

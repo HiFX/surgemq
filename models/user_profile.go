@@ -14,6 +14,7 @@ type UserProfileBasics struct {
 	FirstName    string  `json:"usr_first_name,omitempty"`
 	LastName     string  `json:"usr_last_name,omitempty"`
 	ProfileImage string  `json:"usr_image,omitempty"`
+	IsOnline	 bool	 `json:"usr_is_online"`
 }
 
 type UserProfileCore struct {
@@ -25,6 +26,7 @@ func (this *UserProfileCore) Flatten() ([]byte) {
 	j, _ := json.Marshal(this)
 	return j
 }
+
 func (this *UserProfileBasics) Name() string {
 	return fmt.Sprintf("%s %s", this.FirstName, this.LastName)
 }

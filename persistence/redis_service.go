@@ -52,10 +52,10 @@ type Redis struct {
 func NewRedis(host, pass string, db int) (*Redis, error) {
 	//prepare client
 	rClient := redis.NewClient(&redis.Options{
-		Addr:     host,
-		Password: pass,
-		DB:       int64(db),
-	})
+	Addr:     host,
+	Password: pass,
+	DB:       int64(db),
+})
 	_, err := rClient.Ping().Result()
 	if err != nil {
 		return nil, err
@@ -110,13 +110,15 @@ func (this *Redis) RemoveOnlineUser(userId string) error {
 }
 
 //Set for setting values in db; returns error
-func (this *Redis) SetChatToken(chatToken string, token models.Token) error {
-	err := this.setChatToken(chatToken, token)
-	if err != nil {
-		return err
-	}
+//func (this *Redis) SetChatToken(chatToken string, token models.Token) error {
+func (this *Redis) SetChatToken(token models.Token) error {
+//	err := this.setChatToken(chatToken, token)
+//	if err != nil {
+//		return err
+//	}
+	this.setUserProfile(token)
 	//register a topic under own name for communicating control messages;
-	_, err = this.newShadow([]string{token.Sub}, token.Sub, token.Sub, 0)
+	_, err := this.newShadow([]string{token.Sub}, token.Sub, token.Sub, 0)
 	return err
 }
 
@@ -138,9 +140,20 @@ func (this *Redis) Flush(groupName string, msg *models.Message) error {
 	if err != nil {
 		return err
 	}
+	if len(shadow) == 0 {
+		return models.InvalidTopicErrror
+	}
 	this.dumpInFlushSink(shadow, msg.Serialize())
 	//todo : error not considered here
-	this.addChatTimeLine(msg.Id, nickName)
+	go func() {
+		active_buddies, err := this.getBuddyList(nickName)
+		if err != nil {
+			//todo : deal error
+		}
+		for _, buddy := range active_buddies {
+			this.addChatTimeLine(buddy, nickName)
+		}
+	}()
 	return nil
 }
 
@@ -255,6 +268,41 @@ func (this *Redis) BuddiesOnline(user_id string) ([]models.UserProfileBasics, er
 		}
 	}
 	return profileList, nil
+}
+
+func (this *Redis) ChatTimeLine(user_id string, from , size int) ([]models.Messages , error) {
+	nickTimeLine, err := this.rangeChatTimeLine(user_id, int64(from), int64(size))
+	if err != nil {
+		//todo : deal error
+	}
+
+	msgTimeLine := make([]models.Messages, len(nickTimeLine))
+	for i, nick := range nickTimeLine {
+		lastMsgs, err := this.scan(user_id, nick, 0, 1)
+		if err != nil {
+			//todo : deal error
+			//todo : deal the index too
+		}
+		if len(lastMsgs) > 0 {
+			msgTimeLine[i].MessageList = lastMsgs[:1]
+			//grab meta & set
+			profileMeta, err := this.UsersBasicProfile(nick)
+			if err != nil {
+				//todo : deal error
+			}
+			msgTimeLine[i].Meta = new(models.ThreadMeta)
+			msgTimeLine[i].Meta.Buddies = &profileMeta
+			for k, usr := range *msgTimeLine[i].Meta.Buddies {
+				status, err := this.checkUserOnline(usr.Id)
+				if err != nil {
+					//todo : deal error
+				}
+				(*msgTimeLine[i].Meta.Buddies)[k].IsOnline = status
+			}
+			msgTimeLine[i].Meta.Topic = nick
+		}
+	}
+	return msgTimeLine, nil
 }
 
 func (this *Redis) UserBasicProfile(user_id string) (models.UserProfileBasics, error) {
@@ -675,7 +723,7 @@ func (this *Redis) renameNickOfNickShadow(oldNick, newNick string) error {
 
 func (this *Redis) setChatToken(chatToken string, token models.Token) error {
 	label := fmt.Sprintf("%s_%s", CHAT_TOKEN_PREFIX, token.Sub)
-	_, err := this.client.Set(label, chatToken, time.Duration(time.Second * CHAT_TOKEN_DURATION_SEC)).Result()
+	_, err := this.client.Set(label, chatToken, time.Duration(time.Second*CHAT_TOKEN_DURATION_SEC)).Result()
 	if err != nil && err != redis.Nil {
 		return err
 	}
@@ -795,7 +843,9 @@ func (this *Redis) cleanOnlineStatuses() error {
 }
 
 func (this *Redis) addChatTimeLine(userId, nickName string) error {
+	fmt.Println("adding chat to timeline")
 	label := fmt.Sprintf("%s_%s", CHAT_TIME_LINE_PREFIX, userId)
+	fmt.Println("label : ", label)
 	z := redis.Z{Member: nickName, Score: float64(time.Now().UTC().Unix())}
 	_, err := this.client.ZAdd(label, z).Result()
 	if err != redis.Nil {

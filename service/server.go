@@ -31,6 +31,7 @@ import (
 	"github.com/HiFX/surgemq/topics"
 	"github.com/HiFX/surgemq/persistence"
 	"strings"
+	"github.com/HiFX/surgemq/models"
 )
 
 var (
@@ -115,13 +116,13 @@ type Server struct {
 	qoss []byte
 
 	//A custom Authenticator for token based authentication
-	authenticate func(string, string) (error)
+	authenticate func(string) (models.Token ,error)
 
 	//redis client
 	redis *persistence.Redis
 
 	//custom authorization module
-	authorization func(...string)bool
+	authorization func(...string)(bool)
 }
 
 // ListenAndServe listents to connections on the URI requested, and handles any
@@ -223,17 +224,18 @@ func (this *Server) Publish(msg *message.PublishMessage, onComplete OnCompleteFu
 
 //authentication
 func (this *Server) authProvider() func(string, string)(error) {
-	return func(userId, chatToken string) (error){
+	return func(userId, idToken string) (error){
 		userId = strings.TrimSpace(userId)
-		chatToken = strings.TrimSpace(chatToken)
-		cToken, err := this.redis.GetChatToken(userId)
+		idToken = strings.TrimSpace(idToken)
+		token, err := this.authenticate(idToken)
 		if err != nil {
-			//todo : deal error for determining the type of error
 			return err
 		}
-		if chatToken != cToken {
-			return errors.New("auth fail; invalid chat token")
+		if userId !=  token.Sub {
+			return errors.New("un authorized user")
 		}
+		//register user
+		this.redis.SetChatToken(token)
 		return nil
 	}
 }
@@ -317,7 +319,7 @@ func (this *Server) handleConnection(c io.Closer) (svc *service, err error) {
 
 //	Authenticate the user, if error, return error and exit
 //		if err = this.authMgr.Authenticate(string(req.Username()), string(req.Password())); err != nil {
-		if err := this.authenticate(string(req.Username()), string(req.Password())); err != nil {
+		if err := this.authProvider()(string(req.Username()), string(req.Password())); err != nil {
 			resp.SetReturnCode(message.ErrBadUsernameOrPassword)
 			resp.SetSessionPresent(false)
 			writeMessage(conn, resp)
@@ -407,15 +409,16 @@ func (this *Server) checkConfiguration() error {
 		if this.TimeoutRetries == 0 {
 			this.TimeoutRetries = DefaultTimeoutRetries
 		}
-		if this.Authenticator == "" {
-			this.authenticate = this.authProvider()
+//		if this.Authenticator == "" {
+//			err = errors.New("invalid authenticator")
+			//		this.authenticate = this.authProvider()
 			//			this.Authenticator = "mockSuccess"
 			//		}
 			//
 			//		this.authMgr, err = auth.NewManager(this.Authenticator)
 			//		if err != nil {
 			//			return
-		}
+//		}
 		if this.SessionsProvider == "" {
 			this.SessionsProvider = "mem"
 		}

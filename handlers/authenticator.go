@@ -5,8 +5,8 @@ import (
 	"github.com/zenazn/goji/web"
 	"github.com/HiFX/surgemq/models"
 	"net/http"
-	"time"
 	"fmt"
+	"errors"
 	"encoding/json"
 	"github.com/HiFX/surgemq/persistence"
 )
@@ -75,19 +75,19 @@ func (this Authenticator) Authenticate(c *web.C, h http.Handler) http.Handler {
 	return http.HandlerFunc(fn)
 }
 
-func (this Authenticator) ChatToken(c web.C, w http.ResponseWriter, req *http.Request) {
-	dToken, _ := c.Env["token"]
-	token, _ := dToken.(models.Token)
-
-	//todo : replace the user id generating code
-	chatToken := fmt.Sprintf("%d", int(time.Now().UTC().Unix()))
-	err := this.Persist.SetChatToken(chatToken, token)
-	if err != nil {
-		//todo : deal error
-		return
-	}
-	this.Respond(w, 200, chatToken)
-}
+//func (this Authenticator) ChatToken(c web.C, w http.ResponseWriter, req *http.Request) {
+//	dToken, _ := c.Env["token"]
+//	token, _ := dToken.(models.Token)
+//
+//	//todo : replace the user id generating code
+//	chatToken := fmt.Sprintf("%d", int(time.Now().UTC().Unix()))
+//	err := this.Persist.SetChatToken(chatToken, token)
+//	if err != nil {
+//		//todo : deal error
+//		return
+//	}
+//	this.Respond(w, 200, chatToken)
+//}
 
 type authError struct {
 	Code          int        `json:"code"`
@@ -127,3 +127,29 @@ func inspectTokenPermissions(authToken *jwt.Token) (bool, models.Token) {
 	return true, token
 }
 
+func (this Authenticator) NewTokenAuthenticator() (func(string) (models.Token, error), error) {
+	//key reader for JWT authentication
+	KeyReader := func(t *jwt.Token) (interface{}, error) {
+		return this.KeyFile, nil
+	}
+	//the desired authenticator
+	authenticator := func(tokenString string) (models.Token, error) {
+		token, er := jwt.Parse(tokenString, KeyReader)
+		if er != nil {
+			return models.Token{}, er
+		}
+		if !token.Valid {
+			return models.Token{}, errors.New("invalid token")
+		}
+		_, ok := token.Claims["sub"]
+		if !ok {
+			return models.Token{}, errors.New("invalid token, no user id present")
+		}
+		pass, dToken := inspectTokenPermissions(token)
+		if !pass {
+			return dToken, errors.New("invalid token")
+		}
+		return dToken, nil
+	}
+	return authenticator, nil
+}

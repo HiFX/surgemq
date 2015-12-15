@@ -20,6 +20,7 @@ type Message struct{
 	What    string    `json:"what,omitempty"`
 	//On : topic on which the message is made
 	On string	`json:"topic,omitempty"`
+	//todo : remove buddies from message struct
 	//Buddies : who are the pariticipants
 	Buddies *[]UserProfileBasics		`json:"buddies,omitempty"`
 }
@@ -31,4 +32,14 @@ func (this *Message) Serialize() ([]byte) {
 
 func (this *Message) String() string {
 	return fmt.Sprintf("%s : %s", this.Who, this.What)
+}
+
+type Messages struct {
+	MessageList []Message	`json:"messages,omitempty"`
+	Meta	*ThreadMeta		`json:"meta,omitempty"`
+}
+
+type ThreadMeta struct {
+	Buddies	*[]UserProfileBasics	`json:"buddies,omitempty"`
+	Topic	string					`json:"topic,omitempty"`
 }
