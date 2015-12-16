@@ -12,6 +12,8 @@ import (
 	"github.com/HiFX/surgemq/persistence"
 	"strconv"
 	"github.com/HiFX/surgemq/models"
+	"fmt"
+	"encoding/json"
 )
 
 type History struct {
@@ -44,10 +46,13 @@ func (this *History) History(c web.C, w http.ResponseWriter, req *http.Request) 
 		//todo : deal error
 		countInt = 25
 	}
-	list, scanErr := this.Redis.Scan(userId, groupStr, offsetInt, countInt)
+	fmt.Println("Load history for topic  :", groupStr)
+	list, scanErr := this.Redis.Scan2(userId, groupStr, offsetInt, countInt)
 	if scanErr != nil {
 		//todo : deal error
 	}
+	j, _ := json.Marshal(list)
+	fmt.Println("loaded history  : ", string(j))
 	this.Respond(w, 200, list)
 	return
 }

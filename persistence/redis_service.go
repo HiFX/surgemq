@@ -158,13 +158,15 @@ func (this *Redis) Flush(groupName string, msg *models.Message) error {
 }
 
 //Scan implements scanning of the chat history
-func (this *Redis) Scan(userId, clientGroupLabel string, offset, count int) ([]models.Message, error) {
+func (this *Redis) Scan2(userId, clientGroupLabel string, offset, count int) ([]models.Message, error) {
+	fmt.Println("Scan2 Invoked..")
 	_, nickName, err := this.ClientGroupBuddies(clientGroupLabel)
 	fmt.Println("Nick Name : ", nickName)
 	if err != nil {
 		fmt.Println("client group label obtained successfully")
 		//todo : deal error
 	}
+	fmt.Println("Scan2 Invoking scan")
 	return this.scan(userId, nickName, offset, count)
 }
 
@@ -500,6 +502,9 @@ func (this *Redis) groupShadow(buddies []string, nickName, clientGroup, userId s
 func (this *Redis) scan(userId, nickName string, offSet, count int) ([]models.Message, error) {
 	label := fmt.Sprintf("%s_%s", USER_HISTORY_PREFIX, userId)
 	shadow, err := this.client.HGet(label, nickName).Result()
+	if err == redis.Nil {
+		return []models.Message{}, nil
+	}
 	if err != nil && err != redis.Nil {
 		//todo : deal error
 		return []models.Message{}, err
